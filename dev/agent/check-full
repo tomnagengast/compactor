@@ -6,3 +6,6 @@ cd "$ROOT"
 
 dev/agent/check-fast
 
+if command -v goreleaser >/dev/null 2>&1; then
+	goreleaser check
+fi

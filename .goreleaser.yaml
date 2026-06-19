@@ -1,0 +1,62 @@
+version: 2
+
+project_name: compactor
+
+builds:
+  - id: compactor
+    main: ./cmd/compactor
+    binary: compactor
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/tomnagengast/compactor/internal/version.Version=v{{ .Version }}
+      - -X github.com/tomnagengast/compactor/internal/version.Commit={{ .Commit }}
+      - -X github.com/tomnagengast/compactor/internal/version.Date={{ .Date }}
+
+archives:
+  - id: compactor
+    ids:
+      - compactor
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+release:
+  github:
+    owner: tomnagengast
+    name: compactor
+
+homebrew_casks:
+  - name: compactor-cli
+    ids:
+      - compactor
+    binaries:
+      - compactor
+    repository:
+      owner: tomnagengast
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    commit_msg_template: "update compactor to {{ .Tag }}"
+    homepage: "https://github.com/tomnagengast/compactor"
+    description: "Progressive disclosure for agent compaction."
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/compactor"]
+          end

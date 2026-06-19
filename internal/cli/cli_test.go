@@ -50,6 +50,16 @@ func TestHookFlowInjectsAdditionalContext(t *testing.T) {
 	}
 }
 
+func TestVersionCommandPrintsDisplayVersion(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"--version"}, strings.NewReader(""), &out, &bytes.Buffer{}, "compactor test"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "compactor test" {
+		t.Fatalf("version output = %q", out.String())
+	}
+}
+
 func TestResolveCommandReadsGeneratedReference(t *testing.T) {
 	dir := t.TempDir()
 	preInput := strings.NewReader(`{

@@ -46,7 +46,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, ver
 	}
 
 	if args[0] == "--version" || args[0] == "-v" || args[0] == "version" {
-		fmt.Fprintf(stdout, "compactor %s\n", version)
+		fmt.Fprintln(stdout, version)
 		return nil
 	}
 

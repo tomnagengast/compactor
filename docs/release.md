@@ -1,16 +1,43 @@
 # Release
 
-There is no packaged release yet.
+Release packaging is configured with GoReleaser. The first release tag has not been cut yet.
 
-Expected release path once the CLI has a useful workflow:
+## Prerequisites
 
-1. Run `dev/agent/check-full`.
-2. Update `CHANGELOG.md`.
-3. Confirm version metadata and CLI description.
-4. Tag with `v*.*.*`.
-5. Publish GitHub release assets and checksums.
-6. Verify install from the release artifact.
-7. Add and verify a Homebrew cask when distribution is ready.
+- GoReleaser v2.
+- GitHub `contents:write` permission through the workflow `GITHUB_TOKEN`.
+- `HOMEBREW_TAP_GITHUB_TOKEN` with write access to `tomnagengast/homebrew-tap`.
 
-Release automation should follow the sibling Go CLI pattern after the command surface settles.
+## Local verification
 
+```sh
+dev/agent/check-full
+goreleaser check
+goreleaser release --snapshot --clean
+```
+
+`dev/agent/check-full` runs `goreleaser check` when GoReleaser is installed.
+
+## Publish
+
+1. Update `CHANGELOG.md`.
+2. Confirm `compactor --version` reports the intended version metadata in a snapshot build.
+3. Tag an annotated semver release:
+
+   ```sh
+   git tag -a v0.1.0 -m "v0.1.0"
+   git push origin v0.1.0
+   ```
+
+4. The `release` workflow publishes GitHub release assets, checksums, and the Homebrew cask.
+
+## Post-release smoke
+
+```sh
+brew tap tomnagengast/tap
+brew install --cask tomnagengast/tap/compactor-cli
+compactor --version
+compactor hooks snippet claude --binary compactor
+printf '{"session_id":"release-smoke","cwd":"%s","hook_event_name":"PreCompact","trigger":"manual"}\n' "$PWD" \
+  | compactor hook claude precompact
+```

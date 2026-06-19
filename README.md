@@ -31,7 +31,12 @@ go build ./cmd/compactor
 ./compactor --help
 ```
 
-Packaged releases and Homebrew installation will be added after the first usable workflow exists.
+Release packaging is configured through GoReleaser. Until the first `v0.1.0` tag is published, build from source. After a release exists, install from GitHub release assets or Homebrew:
+
+```sh
+brew tap tomnagengast/tap
+brew install --cask tomnagengast/tap/compactor-cli
+```
 
 ## Why this exists
 
@@ -83,4 +88,4 @@ The wrappers are intentionally small while the repo is young. They will become t
 ## Roadmap
 
 1. Add hook installer snippets for Claude and Codex.
-2. Add release packaging, Homebrew distribution, and richer smoke tests.
+2. Cut and verify the first `v0.1.0` release.
