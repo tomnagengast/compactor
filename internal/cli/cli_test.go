@@ -72,6 +72,28 @@ func TestResolveCommandReadsGeneratedReference(t *testing.T) {
 	}
 }
 
+func TestValidateCommandChecksGeneratedSession(t *testing.T) {
+	dir := t.TempDir()
+	preInput := strings.NewReader(`{
+		"session_id": "session-4",
+		"cwd": "` + filepath.ToSlash(dir) + `",
+		"hook_event_name": "PreCompact",
+		"trigger": "manual"
+	}`)
+	if err := Run([]string{"hook", "codex", "precompact"}, preInput, &bytes.Buffer{}, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("precompact failed: %v", err)
+	}
+
+	sessionDir := filepath.Join(dir, ".compactor", "sessions", "codex", "session-4")
+	var out bytes.Buffer
+	if err := Run([]string{"validate", sessionDir}, strings.NewReader(""), &out, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("validate failed: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "- ok ref index") {
+		t.Fatalf("validate output missing ref check:\n%s", out.String())
+	}
+}
+
 func TestHookDecodeFailureContinues(t *testing.T) {
 	var out bytes.Buffer
 	err := Run([]string{"hook", "claude", "precompact"}, strings.NewReader(`not-json`), &out, &bytes.Buffer{}, "test")

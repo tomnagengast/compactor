@@ -17,6 +17,7 @@ The first implementation uses hook commands:
 - `postcompact`: capture native compact metadata after compaction and refresh the pending context capsule.
 - `inject`: emit the small progressive-disclosure capsule through `additionalContext`.
 - `resolve`: read a local path or `compactor://session/<agent>/<session>/<doc>` ref and print bounded document content.
+- `validate`: check a generated session store for missing documents, duplicate ids, missing pending context, and stale refs.
 
 ## Constraints
 
@@ -37,5 +38,6 @@ Transcript parsing is bounded and local. `timeline.md`, `decisions.md`, and `too
 - How should references handle private tool output, secrets, and user-redacted material?
 - Should `inject` be wired primarily to `SessionStart(source=compact)` or `UserPromptSubmit` for each agent?
 - Which larger tool outputs should be split into separate referenced documents instead of remaining bounded inline extracts?
+- What hook-install diagnostics are useful enough to show without making dry runs noisy?
 
 See [research/compaction-survey.md](./research/compaction-survey.md) for the current official-docs summary of Claude and Codex compaction surfaces.

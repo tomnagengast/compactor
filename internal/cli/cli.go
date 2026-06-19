@@ -12,6 +12,7 @@ import (
 	"github.com/tomnagengast/compactor/internal/reference"
 	"github.com/tomnagengast/compactor/internal/snippet"
 	"github.com/tomnagengast/compactor/internal/store"
+	"github.com/tomnagengast/compactor/internal/validate"
 )
 
 const usage = `compactor
@@ -22,6 +23,7 @@ Usage:
   compactor --help
   compactor --version
   compactor resolve <ref-or-path> [--cwd <path>] [--max-bytes <n>]
+  compactor validate <session-dir-or-manifest>
   compactor hook <agent> <phase>
   compactor hooks snippet <agent> [--binary <path>]
   compactor hooks install <agent> [--scope project|user] [--binary <path>] [--write]
@@ -57,8 +59,28 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, ver
 	if args[0] == "resolve" {
 		return runResolve(args[1:], stdout)
 	}
+	if args[0] == "validate" {
+		return runValidate(args[1:], stdout)
+	}
 
 	return fmt.Errorf("unknown command: %s\n\n%s", args[0], usage)
+}
+
+func runValidate(args []string, stdout io.Writer) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: compactor validate <session-dir-or-manifest>")
+	}
+	report, err := validate.Run(args[0])
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(stdout, report.String()); err != nil {
+		return err
+	}
+	if !report.OK() {
+		return fmt.Errorf("validation failed")
+	}
+	return nil
 }
 
 func runResolve(args []string, stdout io.Writer) error {

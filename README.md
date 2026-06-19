@@ -14,6 +14,7 @@ This repository has an early hook-driven implementation. The CLI can read Claude
 go run ./cmd/compactor --help
 go run ./cmd/compactor hook claude precompact < hook-event.json
 go run ./cmd/compactor resolve compactor://session/claude/session-1/index
+go run ./cmd/compactor validate .compactor/sessions/claude/session-1
 go run ./cmd/compactor hooks snippet claude --binary compactor
 go run ./cmd/compactor hooks install claude --binary compactor
 go run ./cmd/compactor hooks uninstall claude --binary compactor
@@ -81,5 +82,5 @@ The wrappers are intentionally small while the repo is young. They will become t
 ## Roadmap
 
 1. Add hook installer snippets for Claude and Codex.
-2. Improve hook merge diagnostics and drift validation.
+2. Improve hook merge diagnostics.
 3. Add release packaging, Homebrew distribution, and richer smoke tests.

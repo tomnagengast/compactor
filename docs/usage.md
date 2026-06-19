@@ -6,6 +6,7 @@ Current command surface:
 compactor --help
 compactor --version
 compactor resolve <ref-or-path>
+compactor validate <session-dir-or-manifest>
 compactor hook claude precompact
 compactor hook claude postcompact
 compactor hook claude inject
@@ -53,6 +54,13 @@ Use `resolve` to print a bounded referenced document:
 ```sh
 compactor resolve compactor://session/claude/session-1/index
 compactor resolve .compactor/sessions/claude/session-1/decisions.md --max-bytes 4000
+```
+
+Use `validate` to check a generated session store for missing documents, duplicate ids, missing pending context, and stale refs:
+
+```sh
+compactor validate .compactor/sessions/claude/session-1
+compactor validate .compactor/sessions/claude/session-1/manifest.json
 ```
 
 Example:
@@ -122,4 +130,3 @@ Like install, uninstall is a dry run unless `--write` is present. It removes hoo
 Planned command areas:
 
 - Add richer hook merge diagnostics.
-- Validate generated documents for drift, missing references, and unsafe paths.
