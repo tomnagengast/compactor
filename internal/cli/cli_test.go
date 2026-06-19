@@ -50,6 +50,34 @@ func TestHookFlowInjectsAdditionalContext(t *testing.T) {
 	}
 }
 
+func TestHookInjectWithoutCompactionNoops(t *testing.T) {
+	dir := t.TempDir()
+	injectInput := strings.NewReader(`{
+		"session_id": "fresh-session",
+		"cwd": "` + filepath.ToSlash(dir) + `",
+		"hook_event_name": "UserPromptSubmit",
+		"prompt": "hello"
+	}`)
+	var out bytes.Buffer
+	if err := Run([]string{"hook", "codex", "inject"}, injectInput, &out, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("inject failed: %v", err)
+	}
+
+	var output map[string]any
+	if err := json.Unmarshal(out.Bytes(), &output); err != nil {
+		t.Fatalf("decode inject output: %v", err)
+	}
+	if output["continue"] != true {
+		t.Fatalf("continue = %#v, want true", output["continue"])
+	}
+	if _, ok := output["hookSpecificOutput"]; ok {
+		t.Fatalf("fresh inject should not add context: %#v", output["hookSpecificOutput"])
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".compactor")); !os.IsNotExist(err) {
+		t.Fatalf("fresh inject created .compactor, err=%v", err)
+	}
+}
+
 func TestVersionCommandPrintsDisplayVersion(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"--version"}, strings.NewReader(""), &out, &bytes.Buffer{}, "compactor test"); err != nil {

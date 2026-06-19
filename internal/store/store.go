@@ -130,16 +130,31 @@ func (m Manager) PostCompact(event hookio.Event) (Result, error) {
 }
 
 func (m Manager) PendingContext(event hookio.Event) (string, error) {
-	manifest, err := m.loadOrCreate(event)
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(manifest.SessionDir, "pending-context.md")
+	sessionDir := SessionDir(event)
+	path := filepath.Join(sessionDir, "pending-context.md")
 	content, err := os.ReadFile(path)
 	if err == nil {
 		return string(content), nil
 	}
-	manifest.ensureDocuments(false)
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	manifestPath := filepath.Join(sessionDir, "manifest.json")
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	manifest, err := m.loadOrCreate(event)
+	if err != nil {
+		return "", err
+	}
+	if len(manifest.Documents) == 0 {
+		return "", nil
+	}
 	if err := writePendingContext(manifest); err != nil {
 		return "", err
 	}
