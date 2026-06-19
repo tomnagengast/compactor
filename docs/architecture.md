@@ -25,3 +25,4 @@ Generated documents should be useful to agents after context loss. That means st
 - What metadata is enough for retrieval without rebuilding a full search engine?
 - How should references handle private tool output, secrets, and user-redacted material?
 
+See [research/compaction-survey.md](./research/compaction-survey.md) for the current official-docs summary of Claude and Codex compaction surfaces.
