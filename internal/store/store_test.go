@@ -152,9 +152,149 @@ func TestPreCompactWithSanitizedFixtureValidatesSession(t *testing.T) {
 	}
 }
 
+func TestPreCompactWritesLargeToolOutputDocument(t *testing.T) {
+	dir := t.TempDir()
+	transcriptPath := filepath.Join(dir, "session.jsonl")
+	largeOutput := strings.Repeat("large tool output line\n", 400)
+	line := map[string]any{
+		"type":       "user",
+		"uuid":       "result-1",
+		"parentUuid": "call-1",
+		"toolUseResult": map[string]any{
+			"stdout": largeOutput,
+		},
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "tool_result", "tool_use_id": "call-1", "content": largeOutput},
+			},
+		},
+	}
+	data, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewManager()
+	event := hookio.Event{
+		Agent:          hookio.AgentClaude,
+		SessionID:      "large-output-session",
+		CWD:            dir,
+		TranscriptPath: transcriptPath,
+		HookEventName:  "PreCompact",
+		Trigger:        "manual",
+	}
+	if _, err := manager.PreCompact(event); err != nil {
+		t.Fatalf("PreCompact returned error: %v", err)
+	}
+
+	sessionDir := filepath.Join(dir, ".compactor", "sessions", "claude", "large-output-session")
+	outputPath := filepath.Join(sessionDir, "tool-results", "0001-tool-result.md")
+	outputDoc, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("expected large output doc: %v", err)
+	}
+	if !strings.Contains(string(outputDoc), "large tool output line") {
+		t.Fatalf("large output doc missing output:\n%s", outputDoc)
+	}
+
+	manifestData, err := os.ReadFile(filepath.Join(sessionDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Privacy.LargeToolOutputsStored {
+		t.Fatal("large tool output privacy flag should be true")
+	}
+	if !hasDocumentKind(manifest, "tool-output") {
+		t.Fatalf("manifest missing tool-output document: %#v", manifest.Documents)
+	}
+
+	overview, err := os.ReadFile(filepath.Join(sessionDir, "tool-results.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(overview), "tool-output-0001") || !strings.Contains(string(overview), "compactor://session/claude/large-output-session/tool-output-0001") {
+		t.Fatalf("tool overview missing output ref:\n%s", overview)
+	}
+
+	pending, err := os.ReadFile(filepath.Join(sessionDir, "pending-context.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pending), "large tool output line") {
+		t.Fatalf("pending context should not include large output:\n%s", pending)
+	}
+
+	report, err := validate.Run(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK() {
+		t.Fatalf("generated session failed validation:\n%s", report.String())
+	}
+}
+
+func TestPreCompactOmitsSensitiveLargeToolOutput(t *testing.T) {
+	dir := t.TempDir()
+	transcriptPath := filepath.Join(dir, "session.jsonl")
+	largeOutput := "password=" + strings.Repeat("x", 5000)
+	line := map[string]any{
+		"type":    "tool_result",
+		"content": largeOutput,
+	}
+	data, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewManager()
+	event := hookio.Event{
+		Agent:          hookio.AgentCodex,
+		SessionID:      "sensitive-output-session",
+		CWD:            dir,
+		TranscriptPath: transcriptPath,
+		HookEventName:  "PreCompact",
+		Trigger:        "manual",
+	}
+	if _, err := manager.PreCompact(event); err != nil {
+		t.Fatalf("PreCompact returned error: %v", err)
+	}
+
+	sessionDir := filepath.Join(dir, ".compactor", "sessions", "codex", "sensitive-output-session")
+	if _, err := os.Stat(filepath.Join(sessionDir, "tool-results", "0001-tool-result.md")); !os.IsNotExist(err) {
+		t.Fatalf("sensitive output should not be written, err=%v", err)
+	}
+	overview, err := os.ReadFile(filepath.Join(sessionDir, "tool-results.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(overview), "omitted due to sensitive-pattern match") {
+		t.Fatalf("tool overview missing omission note:\n%s", overview)
+	}
+}
+
 func hasDocument(manifest Manifest, id string) bool {
 	for _, doc := range manifest.Documents {
 		if doc.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDocumentKind(manifest Manifest, kind string) bool {
+	for _, doc := range manifest.Documents {
+		if doc.Kind == kind {
 			return true
 		}
 	}

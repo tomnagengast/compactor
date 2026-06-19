@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -56,6 +57,99 @@ func TestReadTranscriptBoundsEntryText(t *testing.T) {
 	}
 	if !strings.Contains(snapshot.Entries[0].Text, "truncated") {
 		t.Fatalf("bounded entry missing truncation marker: %q", snapshot.Entries[0].Text)
+	}
+}
+
+func TestReadTranscriptExtractsLargeClaudeToolOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	output := strings.Repeat("large output line\n", 20)
+	line := map[string]any{
+		"type":       "user",
+		"uuid":       "result-1",
+		"parentUuid": "call-1",
+		"toolUseResult": map[string]any{
+			"stdout": output,
+			"stderr": "",
+		},
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "tool_result", "tool_use_id": "call-1", "content": output},
+			},
+		},
+	}
+	data, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := Read(path, Options{Agent: "claude", MaxEntries: 10, MaxTextBytes: 40, LargeToolOutputBytes: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LargeToolOutputs) != 1 {
+		t.Fatalf("large outputs = %#v, want one", snapshot.LargeToolOutputs)
+	}
+	got := snapshot.LargeToolOutputs[0]
+	if got.ID != "result-1" || got.ParentID != "call-1" {
+		t.Fatalf("large output ids = %#v", got)
+	}
+	if got.Bytes < len(output) || got.SHA256 == "" || !strings.Contains(got.Text, "large output line") {
+		t.Fatalf("large output missing metadata or text: %#v", got)
+	}
+}
+
+func TestReadTranscriptDoesNotExtractLargeNonToolProse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(path, []byte(`{"role":"assistant","content":"`+strings.Repeat("narrative ", 100)+`"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := Read(path, Options{MaxEntries: 10, LargeToolOutputBytes: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LargeToolOutputs) != 0 {
+		t.Fatalf("large outputs = %#v, want none", snapshot.LargeToolOutputs)
+	}
+}
+
+func TestReadTranscriptExtractsLargeCodexToolOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	output := strings.Repeat("codex output line\n", 20)
+	line := map[string]any{
+		"type": "response_item",
+		"item": map[string]any{
+			"id":      "result-1",
+			"type":    "function_call_output",
+			"call_id": "call-1",
+			"output":  output,
+		},
+	}
+	data, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := Read(path, Options{Agent: "codex", MaxEntries: 10, LargeToolOutputBytes: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LargeToolOutputs) != 1 {
+		t.Fatalf("large outputs = %#v, want one", snapshot.LargeToolOutputs)
+	}
+	got := snapshot.LargeToolOutputs[0]
+	if got.ID != "result-1" || got.ParentID != "call-1" {
+		t.Fatalf("large output ids = %#v", got)
 	}
 }
 

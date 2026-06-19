@@ -2,6 +2,8 @@ package transcript
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,20 +11,22 @@ import (
 )
 
 type Options struct {
-	Agent        string
-	MaxEntries   int
-	MaxTextBytes int
+	Agent                string
+	MaxEntries           int
+	MaxTextBytes         int
+	LargeToolOutputBytes int
 }
 
 type Snapshot struct {
-	SourcePath  string
-	SourceBytes int64
-	LineCount   int
-	Entries     []Entry
-	Decisions   []Finding
-	ToolResults []Finding
-	Boundaries  []Finding
-	ParseError  string
+	SourcePath       string
+	SourceBytes      int64
+	LineCount        int
+	Entries          []Entry
+	Decisions        []Finding
+	ToolResults      []Finding
+	Boundaries       []Finding
+	LargeToolOutputs []ToolOutput
+	ParseError       string
 }
 
 type Entry struct {
@@ -42,12 +46,28 @@ type Finding struct {
 	Text string
 }
 
+type ToolOutput struct {
+	Line      int
+	ID        string
+	ParentID  string
+	Timestamp string
+	ToolName  string
+	Kind      string
+	Bytes     int
+	SHA256    string
+	Excerpt   string
+	Text      string
+}
+
 func Read(path string, opts Options) (Snapshot, error) {
 	if opts.MaxEntries <= 0 {
 		opts.MaxEntries = 80
 	}
 	if opts.MaxTextBytes <= 0 {
 		opts.MaxTextBytes = 500
+	}
+	if opts.LargeToolOutputBytes <= 0 {
+		opts.LargeToolOutputBytes = 4096
 	}
 
 	file, err := os.Open(path)
@@ -77,6 +97,9 @@ func Read(path string, opts Options) (Snapshot, error) {
 		entry := entryFromRaw(snapshot.LineCount, raw, opts)
 		if entry.Text == "" && entry.Kind == "" {
 			continue
+		}
+		if output, ok := largeToolOutputFromRaw(snapshot.LineCount, raw, entry, opts.LargeToolOutputBytes); ok {
+			snapshot.LargeToolOutputs = append(snapshot.LargeToolOutputs, output)
 		}
 		if len(snapshot.Entries) < opts.MaxEntries {
 			snapshot.Entries = append(snapshot.Entries, entry)
@@ -292,6 +315,124 @@ func contentText(value any) string {
 		}
 	}
 	return ""
+}
+
+func largeToolOutputFromRaw(line int, raw map[string]any, entry Entry, threshold int) (ToolOutput, bool) {
+	if threshold <= 0 || !isToolResultEntry(entry, raw) {
+		return ToolOutput{}, false
+	}
+	text := rawToolOutput(raw)
+	if len(text) < threshold {
+		return ToolOutput{}, false
+	}
+	sum := sha256.Sum256([]byte(text))
+	return ToolOutput{
+		Line:      line,
+		ID:        entry.ID,
+		ParentID:  entry.ParentID,
+		Timestamp: entry.Timestamp,
+		ToolName:  entry.ToolName,
+		Kind:      entry.Kind,
+		Bytes:     len(text),
+		SHA256:    hex.EncodeToString(sum[:]),
+		Excerpt:   trimText(text, 240),
+		Text:      text,
+	}, true
+}
+
+func isToolResultEntry(entry Entry, raw map[string]any) bool {
+	lower := strings.ToLower(entry.Role + " " + entry.Kind + " " + entry.Text)
+	if strings.Contains(lower, "tool-result") ||
+		strings.Contains(lower, "tool_result") ||
+		strings.Contains(lower, "[tool result") ||
+		entry.Role == "tool" ||
+		raw["toolUseResult"] != nil {
+		return true
+	}
+	for _, key := range []string{"item", "payload", "event_msg"} {
+		nested, ok := raw[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		itemType := normalize(firstString(nested, "type"))
+		if strings.Contains(itemType, "output") || strings.Contains(itemType, "result") {
+			return true
+		}
+	}
+	return false
+}
+
+func rawToolOutput(raw map[string]any) string {
+	var parts []string
+	if value, ok := raw["toolUseResult"].(map[string]any); ok {
+		for _, key := range []string{"stdout", "stderr", "output", "error"} {
+			if text := rawString(value[key]); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	for _, key := range []string{"content", "result", "output", "stdout", "stderr"} {
+		if text := rawContentString(raw[key]); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if message, ok := raw["message"].(map[string]any); ok {
+		if text := rawContentString(message["content"]); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	for _, key := range []string{"item", "payload", "event_msg"} {
+		nested, ok := raw[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, nestedKey := range []string{"content", "result", "output", "stdout", "stderr"} {
+			if text := rawContentString(nested[nestedKey]); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func rawContentString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case []any:
+		var parts []string
+		for _, item := range typed {
+			if text := rawContentString(item); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	case map[string]any:
+		itemType := normalize(firstString(typed, "type"))
+		if itemType != "" && !(strings.Contains(itemType, "result") || strings.Contains(itemType, "output") || strings.Contains(itemType, "tool")) {
+			return ""
+		}
+		for _, key := range []string{"content", "text", "output", "stdout", "stderr", "error"} {
+			if text := rawContentString(typed[key]); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func rawString(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(typed)
+	}
 }
 
 func decisionFindings(entry Entry) []Finding {

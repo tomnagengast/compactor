@@ -38,12 +38,15 @@ The first document set is:
 - `timeline.md`: compaction event metadata plus bounded transcript extracts.
 - `decisions.md`: bounded heuristic candidates for decisions, constraints, and open questions.
 - `tool-results.md`: bounded references to tool calls and tool results.
+- `tool-results/`: referenced large tool-output documents when a tool result exceeds the split-out threshold and does not match sensitive-output guards.
 - `summaries/native.md`: native compact summary when the hook payload provides one.
 - `pending-context.md`: small reinjection capsule.
 
 Transcript parsing is intentionally bounded. `compactor` does not copy full raw transcripts by default; it extracts short timeline entries, heuristic decision candidates, tool-result references, and agent-specific metadata so agents know where to look next. Claude and Codex entries are normalized enough to promote stable item IDs, parent IDs, tool names, and compaction boundary markers when those fields are present.
 
 Decision and tool extraction is deterministic. `decisions.md` groups candidates into decisions, constraints, open questions, next actions, and low-confidence candidates. `tool-results.md` separates tool calls from tool results and includes source line, confidence, entry id, tool name, and linked call id when known.
+
+Large tool results are handled as scoped tool-output documents, not as raw transcript copies. When a tool result payload is large enough, `compactor` writes a `tool-results/<id>.md` file, records bytes and SHA-256 metadata in `manifest.json`, and adds a `compactor://` ref from `tool-results.md`. The injected pending context only mentions the count of large output documents. Outputs with simple sensitive markers such as bearer tokens, passwords, or private-key text are omitted and noted in `tool-results.md`.
 
 Generated `index.md` and `pending-context.md` include both local file paths and stable refs shaped like:
 

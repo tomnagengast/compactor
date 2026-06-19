@@ -52,11 +52,20 @@ type Document struct {
 	Kind          string `json:"kind"`
 	Summary       string `json:"summary"`
 	RetrievalHint string `json:"retrieval_hint"`
+	SourceLine    int    `json:"source_line,omitempty"`
+	SourceKind    string `json:"source_kind,omitempty"`
+	ToolName      string `json:"tool_name,omitempty"`
+	Bytes         int    `json:"bytes,omitempty"`
+	SHA256        string `json:"sha256,omitempty"`
+	ParentID      string `json:"parent_id,omitempty"`
+	Excerpt       string `json:"excerpt,omitempty"`
+	StoragePolicy string `json:"storage_policy,omitempty"`
 }
 
 type Privacy struct {
 	RawTranscriptStored      bool   `json:"raw_transcript_stored"`
 	BoundedTranscriptExtract bool   `json:"bounded_transcript_extract"`
+	LargeToolOutputsStored   bool   `json:"large_tool_outputs_stored"`
 	Notes                    string `json:"notes"`
 }
 
@@ -75,9 +84,10 @@ func (m Manager) PreCompact(event hookio.Event) (Result, error) {
 	snapshotEvent := eventWithManifestTranscript(event, manifest)
 	snapshot := transcriptSnapshot(snapshotEvent)
 	manifest.Privacy.BoundedTranscriptExtract = len(snapshot.Entries) > 0
-	if err := writeBaseDocuments(manifest, event, "precompact", snapshot); err != nil {
+	if err := writeBaseDocuments(&manifest, event, "precompact", snapshot); err != nil {
 		return Result{}, err
 	}
+	manifest.Privacy.LargeToolOutputsStored = hasStoredLargeToolOutputs(manifest)
 	if err := writePendingContext(manifest); err != nil {
 		return Result{}, err
 	}
@@ -106,9 +116,10 @@ func (m Manager) PostCompact(event hookio.Event) (Result, error) {
 			return Result{}, err
 		}
 	}
-	if err := writeBaseDocuments(manifest, event, "postcompact", snapshot); err != nil {
+	if err := writeBaseDocuments(&manifest, event, "postcompact", snapshot); err != nil {
 		return Result{}, err
 	}
+	manifest.Privacy.LargeToolOutputsStored = hasStoredLargeToolOutputs(manifest)
 	if err := writePendingContext(manifest); err != nil {
 		return Result{}, err
 	}
@@ -263,18 +274,21 @@ func (manifest *Manifest) ensureDocuments(includeNativeSummary bool) {
 	manifest.Documents = docs
 }
 
-func writeBaseDocuments(manifest Manifest, event hookio.Event, phase string, snapshot transcript.Snapshot) error {
+func writeBaseDocuments(manifest *Manifest, event hookio.Event, phase string, snapshot transcript.Snapshot) error {
 	extracted := extract.Analyze(snapshot)
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "index.md"), []byte(indexMarkdown(manifest)), 0o600); err != nil {
+	if err := writeToolOutputDocuments(manifest, snapshot); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "timeline.md"), []byte(timelineMarkdown(manifest, event, phase, snapshot)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "index.md"), []byte(indexMarkdown(*manifest)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "decisions.md"), []byte(decisionsMarkdown(manifest, extracted)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "timeline.md"), []byte(timelineMarkdown(*manifest, event, phase, snapshot)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "tool-results.md"), []byte(toolResultsMarkdown(extracted)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "decisions.md"), []byte(decisionsMarkdown(*manifest, extracted)), 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "tool-results.md"), []byte(toolResultsMarkdown(*manifest, extracted, snapshot)), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -291,6 +305,130 @@ func writeManifest(manifest Manifest) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(filepath.Join(manifest.SessionDir, "manifest.json"), data, 0o600)
+}
+
+func writeToolOutputDocuments(manifest *Manifest, snapshot transcript.Snapshot) error {
+	if len(snapshot.LargeToolOutputs) == 0 {
+		return nil
+	}
+	dir := filepath.Join(manifest.SessionDir, "tool-results")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for index, output := range snapshot.LargeToolOutputs {
+		if sensitiveToolOutput(output.Text) {
+			continue
+		}
+		doc := toolOutputDocument(*manifest, output, index+1)
+		if err := os.WriteFile(doc.Path, []byte(toolOutputMarkdown(output)), 0o600); err != nil {
+			return err
+		}
+		upsertDocument(manifest, doc)
+	}
+	sort.Slice(manifest.Documents, func(i, j int) bool { return manifest.Documents[i].ID < manifest.Documents[j].ID })
+	return nil
+}
+
+func toolOutputDocument(manifest Manifest, output transcript.ToolOutput, sequence int) Document {
+	tool := hookio.SanitizePathComponent(output.ToolName)
+	if tool == "" {
+		tool = hookio.SanitizePathComponent(output.Kind)
+	}
+	if tool == "" {
+		tool = "tool"
+	}
+	id := fmt.Sprintf("tool-output-%04d", sequence)
+	path := filepath.Join(manifest.SessionDir, "tool-results", fmt.Sprintf("%04d-%s.md", sequence, tool))
+	return Document{
+		ID:            id,
+		Path:          path,
+		Kind:          "tool-output",
+		Summary:       fmt.Sprintf("Large tool output captured from transcript line %d.", output.Line),
+		RetrievalHint: "you need full output for a prior tool result",
+		SourceLine:    output.Line,
+		SourceKind:    output.Kind,
+		ToolName:      output.ToolName,
+		Bytes:         output.Bytes,
+		SHA256:        output.SHA256,
+		ParentID:      output.ParentID,
+		Excerpt:       output.Excerpt,
+		StoragePolicy: "scoped-tool-output",
+	}
+}
+
+func upsertDocument(manifest *Manifest, doc Document) {
+	for index := range manifest.Documents {
+		if manifest.Documents[index].ID == doc.ID {
+			manifest.Documents[index] = doc
+			return
+		}
+	}
+	manifest.Documents = append(manifest.Documents, doc)
+}
+
+func toolOutputMarkdown(output transcript.ToolOutput) string {
+	var b strings.Builder
+	b.WriteString("# Large tool output\n\n")
+	b.WriteString("| Field | Value |\n| --- | --- |\n")
+	b.WriteString("| Source line | `")
+	b.WriteString(fmt.Sprint(output.Line))
+	b.WriteString("` |\n")
+	if output.ToolName != "" {
+		b.WriteString("| Tool | `")
+		b.WriteString(output.ToolName)
+		b.WriteString("` |\n")
+	}
+	if output.ID != "" {
+		b.WriteString("| Entry | `")
+		b.WriteString(output.ID)
+		b.WriteString("` |\n")
+	}
+	if output.ParentID != "" {
+		b.WriteString("| Parent/call | `")
+		b.WriteString(output.ParentID)
+		b.WriteString("` |\n")
+	}
+	b.WriteString("| Bytes | `")
+	b.WriteString(fmt.Sprint(output.Bytes))
+	b.WriteString("` |\n")
+	b.WriteString("| SHA256 | `")
+	b.WriteString(output.SHA256)
+	b.WriteString("` |\n")
+	b.WriteString("\n```text\n")
+	b.WriteString(output.Text)
+	if !strings.HasSuffix(output.Text, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("```\n")
+	return b.String()
+}
+
+func hasStoredLargeToolOutputs(manifest Manifest) bool {
+	for _, doc := range manifest.Documents {
+		if doc.Kind == "tool-output" {
+			return true
+		}
+	}
+	return false
+}
+
+func sensitiveToolOutput(text string) bool {
+	lower := strings.ToLower(text)
+	sensitiveMarkers := []string{
+		"private key",
+		"authorization:",
+		"bearer ",
+		"api_key=",
+		"secret=",
+		"password=",
+		"token=",
+	}
+	for _, marker := range sensitiveMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func indexMarkdown(manifest Manifest) string {
@@ -448,18 +586,82 @@ func decisionsMarkdown(_ Manifest, result extract.Result) string {
 	return b.String()
 }
 
-func toolResultsMarkdown(result extract.Result) string {
+func toolResultsMarkdown(manifest Manifest, result extract.Result, snapshot transcript.Snapshot) string {
 	var b strings.Builder
 	b.WriteString("# Tool results\n\n")
 	b.WriteString("These are bounded references to tool calls or tool results extracted from compacted context. Full raw tool output is not copied by default.\n\n")
-	if len(result.Tools) == 0 {
+	if len(result.Tools) == 0 && len(snapshot.LargeToolOutputs) == 0 {
 		b.WriteString("No tool result candidates were extracted.\n")
 		return b.String()
 	}
 	writeFindingSection(&b, "Tool calls", result.Tools, "tool-call", false)
 	writeFindingSection(&b, "Tool results", result.Tools, "tool-result", false)
 	writeFindingSection(&b, "Failures or warnings", result.Tools, "tool-failure", false)
+	writeLargeToolOutputsSection(&b, manifest, snapshot)
 	return b.String()
+}
+
+func writeLargeToolOutputsSection(b *strings.Builder, manifest Manifest, snapshot transcript.Snapshot) {
+	if len(snapshot.LargeToolOutputs) == 0 {
+		return
+	}
+	b.WriteString("## Large output documents\n\n")
+	for index, output := range snapshot.LargeToolOutputs {
+		if sensitiveToolOutput(output.Text) {
+			b.WriteString("- line ")
+			b.WriteString(fmt.Sprint(output.Line))
+			b.WriteString(" omitted due to sensitive-pattern match")
+			if output.ToolName != "" {
+				b.WriteString(" tool=`")
+				b.WriteString(output.ToolName)
+				b.WriteString("`")
+			}
+			b.WriteString("\n")
+			continue
+		}
+		docID := fmt.Sprintf("tool-output-%04d", index+1)
+		doc := findDocument(manifest, docID)
+		b.WriteString("- `")
+		b.WriteString(docID)
+		b.WriteString("` line ")
+		b.WriteString(fmt.Sprint(output.Line))
+		if output.ToolName != "" {
+			b.WriteString(" tool=`")
+			b.WriteString(output.ToolName)
+			b.WriteString("`")
+		}
+		b.WriteString(" bytes=`")
+		b.WriteString(fmt.Sprint(output.Bytes))
+		b.WriteString("` sha256=`")
+		if len(output.SHA256) >= 12 {
+			b.WriteString(output.SHA256[:12])
+		} else {
+			b.WriteString(output.SHA256)
+		}
+		b.WriteString("`")
+		if doc.Path != "" {
+			b.WriteString(" path=")
+			b.WriteString(manifest.RelativePath(doc.Path))
+			b.WriteString(" ref=`")
+			b.WriteString(manifest.Reference(doc.ID))
+			b.WriteString("`")
+		}
+		if output.Excerpt != "" {
+			b.WriteString(": ")
+			b.WriteString(output.Excerpt)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteByte('\n')
+}
+
+func findDocument(manifest Manifest, id string) Document {
+	for _, doc := range manifest.Documents {
+		if doc.ID == id {
+			return doc
+		}
+	}
+	return Document{}
 }
 
 func writeFindingSection(b *strings.Builder, title string, findings []extract.Finding, category string, lowConfidence bool) {
@@ -537,7 +739,12 @@ func pendingContextMarkdown(manifest Manifest) string {
 	b.WriteString(manifest.RelativePath(filepath.Join(manifest.SessionDir, "index.md")))
 	b.WriteString("\n\n")
 	b.WriteString("Available refs:\n")
+	largeToolOutputs := 0
 	for _, doc := range manifest.Documents {
+		if doc.Kind == "tool-output" {
+			largeToolOutputs++
+			continue
+		}
 		b.WriteString("- ")
 		b.WriteString(doc.ID)
 		b.WriteString(": ")
@@ -553,6 +760,13 @@ func pendingContextMarkdown(manifest Manifest) string {
 			b.WriteString(".")
 		}
 		b.WriteString("\n")
+	}
+	if largeToolOutputs > 0 {
+		b.WriteString("- tool-output-documents: ")
+		b.WriteString(fmt.Sprint(largeToolOutputs))
+		b.WriteString(" large tool output document")
+		b.WriteString(plural(largeToolOutputs))
+		b.WriteString(" referenced from tool-results.\n")
 	}
 	b.WriteString("\nOpen the index only when compacted prior detail is needed.\n")
 	return b.String()
@@ -587,4 +801,11 @@ func eventWithManifestTranscript(event hookio.Event, manifest Manifest) hookio.E
 		event.TranscriptPath = manifest.TranscriptPath
 	}
 	return event
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

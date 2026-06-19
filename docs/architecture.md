@@ -27,7 +27,7 @@ Generated documents should be useful to agents after context loss. That means st
 
 Prompt caching is an explicit constraint. Hooks should avoid mutating root instructions, hook config, tool definitions, MCP config, or other early prompt layers during a session. Dynamic detail belongs in `.compactor/` files. Injected context should stay small, deterministic, and reference-oriented.
 
-Transcript parsing is bounded and local. `timeline.md`, `decisions.md`, and `tool-results.md` may include short extracted snippets plus promoted Claude/Codex metadata such as stable item IDs, parent IDs, tool names, and compaction boundary markers. Full raw transcripts are not copied into `.compactor/` by default. Decision extraction is heuristic and should be treated as a candidate list until the agent checks source context.
+Transcript parsing is bounded and local. `timeline.md`, `decisions.md`, and `tool-results.md` may include short extracted snippets plus promoted Claude/Codex metadata such as stable item IDs, parent IDs, tool names, and compaction boundary markers. Full raw transcripts are not copied into `.compactor/` by default. Large tool result payloads can be split into scoped `tool-results/` documents with manifest refs; they are still local files and are omitted when simple sensitive-output markers are detected. Decision extraction is heuristic and should be treated as a candidate list until the agent checks source context.
 
 ## Open design questions
 
@@ -37,7 +37,6 @@ Transcript parsing is bounded and local. `timeline.md`, `decisions.md`, and `too
 - What metadata is enough for retrieval without rebuilding a full search engine?
 - How should references handle private tool output, secrets, and user-redacted material?
 - Should `inject` be wired primarily to `SessionStart(source=compact)` or `UserPromptSubmit` for each agent?
-- Which larger tool outputs should be split into separate referenced documents instead of remaining bounded inline extracts?
 - What hook-install diagnostics are useful enough to show without making dry runs noisy?
 
 See [research/compaction-survey.md](./research/compaction-survey.md) for the current official-docs summary of Claude and Codex compaction surfaces.
