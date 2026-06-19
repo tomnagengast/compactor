@@ -82,5 +82,4 @@ The wrappers are intentionally small while the repo is young. They will become t
 ## Roadmap
 
 1. Add hook installer snippets for Claude and Codex.
-2. Improve hook merge diagnostics.
-3. Add release packaging, Homebrew distribution, and richer smoke tests.
+2. Add release packaging, Homebrew distribution, and richer smoke tests.

@@ -150,6 +150,9 @@ func TestHooksInstallDryRun(t *testing.T) {
 	if !strings.Contains(out.String(), "mode: create") {
 		t.Fatalf("dry-run missing mode:\n%s", out.String())
 	}
+	if !strings.Contains(out.String(), "diagnostics:") || !strings.Contains(out.String(), "- add PreCompact") {
+		t.Fatalf("dry-run missing diagnostics:\n%s", out.String())
+	}
 	if _, err := os.Stat(filepath.Join(dir, ".codex", "hooks.json")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote hooks file, err=%v", err)
 	}

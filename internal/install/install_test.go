@@ -83,6 +83,99 @@ func TestDryRunIncludesTargetAndMode(t *testing.T) {
 	}
 }
 
+func TestDryRunReportsAddedHooks(t *testing.T) {
+	dir := t.TempDir()
+	plan, err := NewPlan(hookio.AgentCodex, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := plan.DryRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		"diagnostics:",
+		"- add PreCompact: 'compactor' 'hook' 'codex' 'precompact'",
+		"- add PostCompact: 'compactor' 'hook' 'codex' 'postcompact'",
+		"- add SessionStart: 'compactor' 'hook' 'codex' 'inject'",
+		"- add UserPromptSubmit: 'compactor' 'hook' 'codex' 'inject'",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("dry run missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestDryRunReportsSkippedExistingHooks(t *testing.T) {
+	dir := t.TempDir()
+	plan, err := NewPlan(hookio.AgentClaude, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := NewPlan(hookio.AgentClaude, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := again.DryRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "- skip PreCompact: 'compactor' 'hook' 'claude' 'precompact' already present") {
+		t.Fatalf("dry run missing skip diagnostic:\n%s", text)
+	}
+}
+
+func TestDryRunWarnsWhenHooksIsNotObject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".codex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"hooks":"bad"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := NewPlan(hookio.AgentCodex, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := plan.DryRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "- warn hooks: expected object, replacing with generated hooks") {
+		t.Fatalf("dry run missing hooks shape warning:\n%s", text)
+	}
+}
+
+func TestDryRunWarnsWhenEventIsNotArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"hooks":{"PreCompact":"bad"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := NewPlan(hookio.AgentClaude, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := plan.DryRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "- warn PreCompact: expected array, replacing event hooks") {
+		t.Fatalf("dry run missing event shape warning:\n%s", text)
+	}
+}
+
 func TestUninstallRemovesOnlyMatchingHooks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".codex", "hooks.json")
@@ -125,6 +218,38 @@ func TestUninstallRemovesOnlyMatchingHooks(t *testing.T) {
 	}
 }
 
+func TestUninstallDryRunReportsRemovedAndMissingHooks(t *testing.T) {
+	dir := t.TempDir()
+	plan, err := NewPlan(hookio.AgentCodex, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	text := mustReadString(t, filepath.Join(dir, ".codex", "hooks.json"))
+	text = strings.Replace(text, "'compactor' 'hook' 'codex' 'postcompact'", "'other' 'hook' 'codex' 'postcompact'", 1)
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "hooks.json"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	removePlan, err := NewUninstallPlan(hookio.AgentCodex, ScopeProject, "compactor", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dryRun, err := removePlan.DryRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dryRun, "- remove PreCompact: 'compactor' 'hook' 'codex' 'precompact'") {
+		t.Fatalf("dry run missing remove diagnostic:\n%s", dryRun)
+	}
+	if !strings.Contains(dryRun, "- missing PostCompact: 'compactor' 'hook' 'codex' 'postcompact'") {
+		t.Fatalf("dry run missing missing diagnostic:\n%s", dryRun)
+	}
+}
+
 func TestUninstallMissingTargetIsNoop(t *testing.T) {
 	dir := t.TempDir()
 	plan, err := NewUninstallPlan(hookio.AgentClaude, ScopeProject, "compactor", dir)
@@ -137,4 +262,20 @@ func TestUninstallMissingTargetIsNoop(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.json")); !os.IsNotExist(err) {
 		t.Fatalf("uninstall created missing target, err=%v", err)
 	}
+	text, err := plan.DryRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "- missing target: ") {
+		t.Fatalf("dry run missing target diagnostic:\n%s", text)
+	}
+}
+
+func mustReadString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

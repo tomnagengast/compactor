@@ -111,10 +111,21 @@ Options:
 
 - `--scope project|user`: choose the target layer. Defaults to `project`.
 - `--binary <path>`: command path to put in hook config.
-- `--write`: write the merged JSON. Without this flag, the command prints the target and resulting JSON.
+- `--write`: write the merged JSON. Without this flag, the command prints the target, diagnostics, and resulting JSON.
 - `--dry-run`: explicit no-write mode.
 
-The installer preserves existing hook events and appends missing `compactor` hook groups. It does not edit Codex `config.toml`; Codex can load `hooks.json`, and using one hook representation per layer avoids startup warnings.
+The installer preserves existing hook events and appends missing `compactor` hook groups. Dry-run diagnostics report generated hook groups that will be added, skipped, removed, or missing, and warn about malformed hook shapes that can be decoded but not merged cleanly.
+
+Example diagnostic lines:
+
+```text
+diagnostics:
+- add PreCompact: 'compactor' 'hook' 'codex' 'precompact'
+- skip UserPromptSubmit: 'compactor' 'hook' 'codex' 'inject' already present
+- preserve Stop: 1 existing hook group
+```
+
+The installer does not edit Codex `config.toml`; Codex can load `hooks.json`, and using one hook representation per layer avoids startup warnings.
 
 ## Hook uninstall
 
@@ -127,6 +138,4 @@ compactor hooks uninstall codex --binary /absolute/path/to/compactor
 
 Like install, uninstall is a dry run unless `--write` is present. It removes hook groups by exact generated command string, so pass the same `--binary` value used during install.
 
-Planned command areas:
-
-- Add richer hook merge diagnostics.
+Planned command areas will be added as the remaining hardening slices land.

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/tomnagengast/compactor/internal/hookio"
 	"github.com/tomnagengast/compactor/internal/snippet"
@@ -18,12 +20,19 @@ const (
 )
 
 type Plan struct {
-	Agent     hookio.Agent
-	Scope     Scope
-	Target    string
-	Config    map[string]any
-	Exists    bool
-	Operation string
+	Agent       hookio.Agent
+	Scope       Scope
+	Target      string
+	Config      map[string]any
+	Exists      bool
+	Operation   string
+	Diagnostics []Diagnostic
+}
+
+type Diagnostic struct {
+	Action  string
+	Event   string
+	Message string
 }
 
 func NewPlan(agent hookio.Agent, scope Scope, binary string, cwd string) (Plan, error) {
@@ -44,15 +53,16 @@ func NewPlan(agent hookio.Agent, scope Scope, binary string, cwd string) (Plan, 
 	if err != nil {
 		return Plan{}, err
 	}
-	merged := merge(existing, config)
+	merged, diagnostics := merge(existing, config)
 
 	return Plan{
-		Agent:     agent,
-		Scope:     scope,
-		Target:    target,
-		Config:    merged,
-		Exists:    exists,
-		Operation: "install",
+		Agent:       agent,
+		Scope:       scope,
+		Target:      target,
+		Config:      merged,
+		Exists:      exists,
+		Operation:   "install",
+		Diagnostics: diagnostics,
 	}, nil
 }
 
@@ -75,13 +85,18 @@ func NewUninstallPlan(agent hookio.Agent, scope Scope, binary string, cwd string
 		return Plan{}, err
 	}
 
+	config, diagnostics := remove(existing, config)
+	if !exists {
+		diagnostics = append(diagnostics, Diagnostic{Action: "missing", Event: "target", Message: target})
+	}
 	return Plan{
-		Agent:     agent,
-		Scope:     scope,
-		Target:    target,
-		Config:    remove(existing, config),
-		Exists:    exists,
-		Operation: "uninstall",
+		Agent:       agent,
+		Scope:       scope,
+		Target:      target,
+		Config:      config,
+		Exists:      exists,
+		Operation:   "uninstall",
+		Diagnostics: diagnostics,
 	}, nil
 }
 
@@ -106,7 +121,7 @@ func (plan Plan) DryRun() (string, error) {
 	if !plan.Exists && plan.Operation == "uninstall" {
 		status = "missing"
 	}
-	return fmt.Sprintf("target: %s\nmode: %s\n\n%s", plan.Target, status, body), nil
+	return fmt.Sprintf("target: %s\nmode: %s\n%s\n%s", plan.Target, status, diagnosticsText(plan.Diagnostics), body), nil
 }
 
 func (plan Plan) Write() error {
@@ -165,39 +180,77 @@ func readConfig(path string) (map[string]any, bool, error) {
 	return config, true, nil
 }
 
-func merge(existing map[string]any, addition map[string]any) map[string]any {
+func merge(existing map[string]any, addition map[string]any) (map[string]any, []Diagnostic) {
 	out := cloneMap(existing)
+	var diagnostics []Diagnostic
 	existingHooks, _ := out["hooks"].(map[string]any)
 	if existingHooks == nil {
+		if _, ok := out["hooks"]; ok {
+			diagnostics = append(diagnostics, Diagnostic{Action: "warn", Event: "hooks", Message: "expected object, replacing with generated hooks"})
+		}
 		existingHooks = map[string]any{}
 	}
 	additionHooks, _ := addition["hooks"].(map[string]any)
-	for eventName, rawGroups := range additionHooks {
-		current := toSlice(existingHooks[eventName])
+	processed := map[string]bool{}
+	for _, eventName := range sortedKeys(additionHooks) {
+		rawGroups := additionHooks[eventName]
+		processed[eventName] = true
+		current, ok := existingHooks[eventName].([]any)
+		if existingHooks[eventName] != nil && !ok {
+			diagnostics = append(diagnostics, Diagnostic{Action: "warn", Event: eventName, Message: "expected array, replacing event hooks"})
+			current = nil
+		}
 		for _, group := range toSlice(rawGroups) {
-			if !containsCommand(current, group) {
+			command := strings.Join(commandStrings(group), ", ")
+			if containsCommand(current, group) {
+				diagnostics = append(diagnostics, Diagnostic{Action: "skip", Event: eventName, Message: commandOrFallback(command, "command already present")})
+			} else {
 				current = append(current, group)
+				diagnostics = append(diagnostics, Diagnostic{Action: "add", Event: eventName, Message: command})
 			}
 		}
 		existingHooks[eventName] = current
 	}
+	for _, eventName := range sortedKeys(existingHooks) {
+		if processed[eventName] {
+			continue
+		}
+		diagnostics = append(diagnostics, Diagnostic{Action: "preserve", Event: eventName, Message: fmt.Sprintf("%d existing hook group%s", len(toSlice(existingHooks[eventName])), plural(len(toSlice(existingHooks[eventName]))))})
+	}
 	out["hooks"] = existingHooks
-	return out
+	return out, diagnostics
 }
 
-func remove(existing map[string]any, removal map[string]any) map[string]any {
+func remove(existing map[string]any, removal map[string]any) (map[string]any, []Diagnostic) {
 	out := cloneMap(existing)
+	var diagnostics []Diagnostic
 	existingHooks, _ := out["hooks"].(map[string]any)
 	if existingHooks == nil {
-		return out
+		if _, ok := out["hooks"]; ok {
+			diagnostics = append(diagnostics, Diagnostic{Action: "warn", Event: "hooks", Message: "expected object, cannot inspect hooks"})
+		}
+		return out, diagnostics
 	}
 	removalHooks, _ := removal["hooks"].(map[string]any)
-	for eventName, rawGroups := range removalHooks {
-		current := toSlice(existingHooks[eventName])
+	for _, eventName := range sortedKeys(removalHooks) {
+		rawGroups := removalHooks[eventName]
+		current, ok := existingHooks[eventName].([]any)
+		if existingHooks[eventName] != nil && !ok {
+			diagnostics = append(diagnostics, Diagnostic{Action: "warn", Event: eventName, Message: "expected array, cannot inspect event hooks"})
+			continue
+		}
 		next := current[:0]
 		for _, group := range current {
 			if !containsCommand(toSlice(rawGroups), group) {
 				next = append(next, group)
+			}
+		}
+		for _, group := range toSlice(rawGroups) {
+			command := strings.Join(commandStrings(group), ", ")
+			if containsCommand(current, group) {
+				diagnostics = append(diagnostics, Diagnostic{Action: "remove", Event: eventName, Message: command})
+			} else {
+				diagnostics = append(diagnostics, Diagnostic{Action: "missing", Event: eventName, Message: command})
 			}
 		}
 		if len(next) == 0 {
@@ -211,7 +264,7 @@ func remove(existing map[string]any, removal map[string]any) map[string]any {
 	} else {
 		out["hooks"] = existingHooks
 	}
-	return out
+	return out, diagnostics
 }
 
 func containsCommand(groups []any, needle any) bool {
@@ -267,4 +320,51 @@ func toSlice(value any) []any {
 	default:
 		return nil
 	}
+}
+
+func diagnosticsText(diagnostics []Diagnostic) string {
+	var b strings.Builder
+	b.WriteString("diagnostics:\n")
+	if len(diagnostics) == 0 {
+		b.WriteString("- ok: no hook changes detected\n\n")
+		return b.String()
+	}
+	for _, diagnostic := range diagnostics {
+		b.WriteString("- ")
+		b.WriteString(diagnostic.Action)
+		if diagnostic.Event != "" {
+			b.WriteByte(' ')
+			b.WriteString(diagnostic.Event)
+		}
+		if diagnostic.Message != "" {
+			b.WriteString(": ")
+			b.WriteString(diagnostic.Message)
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func sortedKeys(input map[string]any) []string {
+	keys := make([]string, 0, len(input))
+	for key := range input {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func commandOrFallback(command string, fallback string) string {
+	if command != "" {
+		return command + " already present"
+	}
+	return fallback
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
