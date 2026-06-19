@@ -9,6 +9,7 @@ import (
 	"github.com/tomnagengast/compactor/internal/capsule"
 	"github.com/tomnagengast/compactor/internal/hookio"
 	"github.com/tomnagengast/compactor/internal/install"
+	"github.com/tomnagengast/compactor/internal/reference"
 	"github.com/tomnagengast/compactor/internal/snippet"
 	"github.com/tomnagengast/compactor/internal/store"
 )
@@ -20,6 +21,7 @@ Progressive disclosure for agent compaction.
 Usage:
   compactor --help
   compactor --version
+  compactor resolve <ref-or-path> [--cwd <path>] [--max-bytes <n>]
   compactor hook <agent> <phase>
   compactor hooks snippet <agent> [--binary <path>]
   compactor hooks install <agent> [--scope project|user] [--binary <path>] [--write]
@@ -52,8 +54,50 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, ver
 	if args[0] == "hooks" {
 		return runHooks(args[1:], stdout)
 	}
+	if args[0] == "resolve" {
+		return runResolve(args[1:], stdout)
+	}
 
 	return fmt.Errorf("unknown command: %s\n\n%s", args[0], usage)
+}
+
+func runResolve(args []string, stdout io.Writer) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: compactor resolve <ref-or-path> [--cwd <path>] [--max-bytes <n>]")
+	}
+
+	ref := args[0]
+	cwd := ""
+	maxBytes := reference.DefaultMaxBytes
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--cwd":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--cwd requires a path")
+			}
+			cwd = args[i+1]
+			i++
+		case "--max-bytes":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--max-bytes requires a positive integer")
+			}
+			parsed, err := reference.ParseMaxBytes(args[i+1])
+			if err != nil {
+				return err
+			}
+			maxBytes = parsed
+			i++
+		default:
+			return fmt.Errorf("unknown resolve flag: %s", args[i])
+		}
+	}
+
+	text, err := reference.Resolve(ref, cwd, maxBytes)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(stdout, text)
+	return err
 }
 
 func runHooks(args []string, stdout io.Writer) error {

@@ -42,8 +42,33 @@ func TestHookFlowInjectsAdditionalContext(t *testing.T) {
 	if !strings.Contains(additional, ".compactor/sessions/codex/session-2/index.md") {
 		t.Fatalf("additional context missing index path:\n%s", additional)
 	}
+	if !strings.Contains(additional, "compactor://session/codex/session-2/index") {
+		t.Fatalf("additional context missing index ref:\n%s", additional)
+	}
 	if len(additional) > 2048 {
 		t.Fatalf("additional context too large: %d", len(additional))
+	}
+}
+
+func TestResolveCommandReadsGeneratedReference(t *testing.T) {
+	dir := t.TempDir()
+	preInput := strings.NewReader(`{
+		"session_id": "session-3",
+		"cwd": "` + filepath.ToSlash(dir) + `",
+		"hook_event_name": "PreCompact",
+		"trigger": "manual"
+	}`)
+	if err := Run([]string{"hook", "claude", "precompact"}, preInput, &bytes.Buffer{}, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("precompact failed: %v", err)
+	}
+
+	var out bytes.Buffer
+	ref := "compactor://session/claude/session-3/index"
+	if err := Run([]string{"resolve", ref, "--cwd", dir}, strings.NewReader(""), &out, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "# Compactor session index") {
+		t.Fatalf("resolved output missing index:\n%s", out.String())
 	}
 }
 

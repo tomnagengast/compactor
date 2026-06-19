@@ -5,6 +5,7 @@ Current command surface:
 ```sh
 compactor --help
 compactor --version
+compactor resolve <ref-or-path>
 compactor hook claude precompact
 compactor hook claude postcompact
 compactor hook claude inject
@@ -40,6 +41,19 @@ The first document set is:
 - `pending-context.md`: small reinjection capsule.
 
 Transcript parsing is intentionally bounded. `compactor` does not copy full raw transcripts by default; it extracts short timeline entries, heuristic decision candidates, tool-result references, and agent-specific metadata so agents know where to look next. Claude and Codex entries are normalized enough to promote stable item IDs, parent IDs, tool names, and compaction boundary markers when those fields are present.
+
+Generated `index.md` and `pending-context.md` include both local file paths and stable refs shaped like:
+
+```text
+compactor://session/<agent>/<session-id>/<document-id>
+```
+
+Use `resolve` to print a bounded referenced document:
+
+```sh
+compactor resolve compactor://session/claude/session-1/index
+compactor resolve .compactor/sessions/claude/session-1/decisions.md --max-bytes 4000
+```
 
 Example:
 
@@ -108,5 +122,4 @@ Like install, uninstall is a dry run unless `--write` is present. It removes hoo
 Planned command areas:
 
 - Add richer hook merge diagnostics.
-- Resolve a reference back to its source document.
 - Validate generated documents for drift, missing references, and unsafe paths.

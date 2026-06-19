@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tomnagengast/compactor/internal/hookio"
+	"github.com/tomnagengast/compactor/internal/reference"
 	"github.com/tomnagengast/compactor/internal/transcript"
 )
 
@@ -198,6 +199,10 @@ func (manifest Manifest) RelativePath(path string) string {
 	return rel
 }
 
+func (manifest Manifest) Reference(docID string) string {
+	return reference.Session(manifest.Agent, manifest.SessionID, docID)
+}
+
 func (manifest *Manifest) appendEvent(event hookio.Event) {
 	name := event.HookEventName
 	if name == "" {
@@ -311,9 +316,12 @@ func indexMarkdown(manifest Manifest) string {
 		b.WriteString(manifest.RelativePath(doc.Path))
 		b.WriteString(") - ")
 		b.WriteString(doc.Summary)
+		b.WriteString(" Ref: `")
+		b.WriteString(manifest.Reference(doc.ID))
+		b.WriteString("`")
 		b.WriteString("\n")
 	}
-	b.WriteString("\n## Retrieval rule\n\nOpen these files only when compacted prior detail is needed for the current task.\n")
+	b.WriteString("\n## Retrieval rule\n\nOpen these files or resolve their refs only when compacted prior detail is needed for the current task.\n")
 	return b.String()
 }
 
@@ -478,6 +486,9 @@ func pendingContextMarkdown(manifest Manifest) string {
 		b.WriteString(doc.ID)
 		b.WriteString(": ")
 		b.WriteString(manifest.RelativePath(doc.Path))
+		b.WriteString(" (`")
+		b.WriteString(manifest.Reference(doc.ID))
+		b.WriteString("`)")
 		b.WriteString(" - ")
 		b.WriteString(doc.Summary)
 		if doc.RetrievalHint != "" {

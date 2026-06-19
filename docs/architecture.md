@@ -8,7 +8,7 @@ The model has four parts:
 
 - Source context: message history, tool outputs, local notes, and explicit compaction summaries supplied by the agent or harness.
 - Document store: local markdown or structured files written under a predictable project or session path.
-- Reference index: a small agent-readable map containing stable ids, short summaries, paths, and retrieval hints.
+- Reference index: a small agent-readable map containing stable ids, `compactor://` refs, local paths, short summaries, and retrieval hints.
 - Adapter layer: Claude and Codex-specific integration surfaces, prompts, commands, hooks, or documented manual flows.
 
 The first implementation uses hook commands:
@@ -16,6 +16,7 @@ The first implementation uses hook commands:
 - `precompact`: snapshot hook metadata and write session documents before native compaction.
 - `postcompact`: capture native compact metadata after compaction and refresh the pending context capsule.
 - `inject`: emit the small progressive-disclosure capsule through `additionalContext`.
+- `resolve`: read a local path or `compactor://session/<agent>/<session>/<doc>` ref and print bounded document content.
 
 ## Constraints
 
