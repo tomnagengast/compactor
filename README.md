@@ -8,7 +8,7 @@
 
 ## Current status
 
-This repository has an early hook-driven implementation. The CLI can read Claude and Codex hook JSON, write local compaction documents under `.compactor/`, and emit a small reinjection capsule for prompt-cache-friendly progressive disclosure.
+This repository has an early hook-driven implementation. The CLI can read Claude and Codex hook JSON, write local compaction documents under `.compactor/`, extract bounded transcript context, and emit a small reinjection capsule for prompt-cache-friendly progressive disclosure.
 
 ```sh
 go run ./cmd/compactor --help

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tomnagengast/compactor/internal/hookio"
+	"github.com/tomnagengast/compactor/internal/transcript"
 )
 
 const manifestVersion = 1
@@ -52,8 +53,9 @@ type Document struct {
 }
 
 type Privacy struct {
-	RawTranscriptStored bool   `json:"raw_transcript_stored"`
-	Notes               string `json:"notes"`
+	RawTranscriptStored      bool   `json:"raw_transcript_stored"`
+	BoundedTranscriptExtract bool   `json:"bounded_transcript_extract"`
+	Notes                    string `json:"notes"`
 }
 
 func NewManager() Manager {
@@ -68,7 +70,10 @@ func (m Manager) PreCompact(event hookio.Event) (Result, error) {
 
 	manifest.appendEvent(event)
 	manifest.ensureDocuments(false)
-	if err := writeBaseDocuments(manifest, event, "precompact"); err != nil {
+	snapshotEvent := eventWithManifestTranscript(event, manifest)
+	snapshot := transcriptSnapshot(snapshotEvent)
+	manifest.Privacy.BoundedTranscriptExtract = len(snapshot.Entries) > 0
+	if err := writeBaseDocuments(manifest, event, "precompact", snapshot); err != nil {
 		return Result{}, err
 	}
 	if err := writePendingContext(manifest); err != nil {
@@ -88,6 +93,9 @@ func (m Manager) PostCompact(event hookio.Event) (Result, error) {
 
 	manifest.appendEvent(event)
 	manifest.ensureDocuments(event.CompactSummary != "")
+	snapshotEvent := eventWithManifestTranscript(event, manifest)
+	snapshot := transcriptSnapshot(snapshotEvent)
+	manifest.Privacy.BoundedTranscriptExtract = len(snapshot.Entries) > 0
 	if event.CompactSummary != "" {
 		if err := os.MkdirAll(filepath.Join(manifest.SessionDir, "summaries"), 0o755); err != nil {
 			return Result{}, err
@@ -96,7 +104,7 @@ func (m Manager) PostCompact(event hookio.Event) (Result, error) {
 			return Result{}, err
 		}
 	}
-	if err := writeBaseDocuments(manifest, event, "postcompact"); err != nil {
+	if err := writeBaseDocuments(manifest, event, "postcompact", snapshot); err != nil {
 		return Result{}, err
 	}
 	if err := writePendingContext(manifest); err != nil {
@@ -142,7 +150,9 @@ func (m Manager) loadOrCreate(event hookio.Event) (Manifest, error) {
 			return Manifest{}, fmt.Errorf("decode manifest: %w", err)
 		}
 		manifest.CWD = event.CWD
-		manifest.TranscriptPath = event.TranscriptPath
+		if event.TranscriptPath != "" {
+			manifest.TranscriptPath = event.TranscriptPath
+		}
 		manifest.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		return manifest, nil
 	}
@@ -159,8 +169,9 @@ func (m Manager) loadOrCreate(event hookio.Event) (Manifest, error) {
 		UpdatedAt:          now,
 		PendingContextPath: filepath.Join(sessionDir, "pending-context.md"),
 		Privacy: Privacy{
-			RawTranscriptStored: false,
-			Notes:               "Raw transcript content is not stored by default.",
+			RawTranscriptStored:      false,
+			BoundedTranscriptExtract: false,
+			Notes:                    "Raw transcript content is not stored by default; generated docs may include bounded extracts.",
 		},
 	}, nil
 }
@@ -215,8 +226,8 @@ func (manifest *Manifest) ensureDocuments(includeNativeSummary bool) {
 			ID:            "timeline",
 			Path:          filepath.Join(manifest.SessionDir, "timeline.md"),
 			Kind:          "timeline",
-			Summary:       "Chronological metadata for the compacted session segment.",
-			RetrievalHint: "you need prior sequence, source transcript metadata, or compaction trigger context",
+			Summary:       "Bounded chronological extracts and metadata for the compacted session segment.",
+			RetrievalHint: "you need prior sequence, source transcript metadata, or compacted message excerpts",
 		},
 		{
 			ID:            "decisions",
@@ -224,6 +235,13 @@ func (manifest *Manifest) ensureDocuments(includeNativeSummary bool) {
 			Kind:          "decisions",
 			Summary:       "Durable decisions and constraints extracted from compacted context.",
 			RetrievalHint: "you need remembered decisions, constraints, or open questions",
+		},
+		{
+			ID:            "tool-results",
+			Path:          filepath.Join(manifest.SessionDir, "tool-results.md"),
+			Kind:          "tool-results",
+			Summary:       "Bounded references to tool calls and tool results found in compacted context.",
+			RetrievalHint: "you need prior command, tool-call, or tool-result context",
 		},
 	}
 	if includeNativeSummary {
@@ -239,14 +257,17 @@ func (manifest *Manifest) ensureDocuments(includeNativeSummary bool) {
 	manifest.Documents = docs
 }
 
-func writeBaseDocuments(manifest Manifest, event hookio.Event, phase string) error {
+func writeBaseDocuments(manifest Manifest, event hookio.Event, phase string, snapshot transcript.Snapshot) error {
 	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "index.md"), []byte(indexMarkdown(manifest)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "timeline.md"), []byte(timelineMarkdown(manifest, event, phase)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "timeline.md"), []byte(timelineMarkdown(manifest, event, phase, snapshot)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "decisions.md"), []byte(decisionsMarkdown(manifest)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "decisions.md"), []byte(decisionsMarkdown(manifest, snapshot)), 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "tool-results.md"), []byte(toolResultsMarkdown(snapshot)), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -296,10 +317,10 @@ func indexMarkdown(manifest Manifest) string {
 	return b.String()
 }
 
-func timelineMarkdown(manifest Manifest, event hookio.Event, phase string) string {
+func timelineMarkdown(manifest Manifest, event hookio.Event, phase string, snapshot transcript.Snapshot) string {
 	var b strings.Builder
 	b.WriteString("# Compacted timeline\n\n")
-	b.WriteString("This file records metadata for the compacted segment. Raw transcript content is not copied by default.\n\n")
+	b.WriteString("This file records metadata and bounded extracts for the compacted segment. Raw transcript content is not copied in full.\n\n")
 	b.WriteString("## Latest hook\n\n")
 	b.WriteString("- Phase: `")
 	b.WriteString(phase)
@@ -324,6 +345,11 @@ func timelineMarkdown(manifest Manifest, event hookio.Event, phase string) strin
 			b.WriteString("`\n")
 		}
 	}
+	if snapshot.ParseError != "" {
+		b.WriteString("- Transcript parse error: `")
+		b.WriteString(snapshot.ParseError)
+		b.WriteString("`\n")
+	}
 	b.WriteString("\n## Event log\n\n")
 	for _, logged := range manifest.Events {
 		b.WriteString("- `")
@@ -341,11 +367,72 @@ func timelineMarkdown(manifest Manifest, event hookio.Event, phase string) strin
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString("\n## Bounded transcript extracts\n\n")
+	if len(snapshot.Entries) == 0 {
+		b.WriteString("No transcript entries were extracted.\n")
+		return b.String()
+	}
+	for _, entry := range snapshot.Entries {
+		b.WriteString("- line ")
+		b.WriteString(fmt.Sprint(entry.Line))
+		if entry.Timestamp != "" {
+			b.WriteString(" `")
+			b.WriteString(entry.Timestamp)
+			b.WriteString("`")
+		}
+		if entry.Role != "" {
+			b.WriteString(" ")
+			b.WriteString(entry.Role)
+		}
+		if entry.Kind != "" && entry.Kind != entry.Role {
+			b.WriteString("/")
+			b.WriteString(entry.Kind)
+		}
+		b.WriteString(": ")
+		b.WriteString(entry.Text)
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
-func decisionsMarkdown(_ Manifest) string {
-	return "# Decisions and constraints\n\nNo decision extraction has run yet.\n\nUse this file for durable decisions, constraints, and open questions extracted from compacted context.\n"
+func decisionsMarkdown(_ Manifest, snapshot transcript.Snapshot) string {
+	var b strings.Builder
+	b.WriteString("# Decisions and constraints\n\n")
+	b.WriteString("These are bounded heuristic candidates extracted from compacted context. Verify against the source transcript before treating them as authoritative.\n\n")
+	if len(snapshot.Decisions) == 0 {
+		b.WriteString("No decision candidates were extracted.\n")
+		return b.String()
+	}
+	for _, finding := range snapshot.Decisions {
+		b.WriteString("- line ")
+		b.WriteString(fmt.Sprint(finding.Line))
+		b.WriteString(" ")
+		b.WriteString(finding.Kind)
+		b.WriteString(": ")
+		b.WriteString(finding.Text)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func toolResultsMarkdown(snapshot transcript.Snapshot) string {
+	var b strings.Builder
+	b.WriteString("# Tool results\n\n")
+	b.WriteString("These are bounded references to tool calls or tool results extracted from compacted context. Full raw tool output is not copied by default.\n\n")
+	if len(snapshot.ToolResults) == 0 {
+		b.WriteString("No tool result candidates were extracted.\n")
+		return b.String()
+	}
+	for _, finding := range snapshot.ToolResults {
+		b.WriteString("- line ")
+		b.WriteString(fmt.Sprint(finding.Line))
+		b.WriteString(" ")
+		b.WriteString(finding.Kind)
+		b.WriteString(": ")
+		b.WriteString(finding.Text)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func nativeSummaryMarkdown(event hookio.Event) string {
@@ -385,4 +472,25 @@ func inferredEventName(event hookio.Event) string {
 		return "SessionStart"
 	}
 	return "Unknown"
+}
+
+func transcriptSnapshot(event hookio.Event) transcript.Snapshot {
+	if event.TranscriptPath == "" {
+		return transcript.Snapshot{}
+	}
+	snapshot, err := transcript.Read(event.TranscriptPath, transcript.Options{})
+	if err != nil {
+		return transcript.Snapshot{
+			SourcePath: event.TranscriptPath,
+			ParseError: err.Error(),
+		}
+	}
+	return snapshot
+}
+
+func eventWithManifestTranscript(event hookio.Event, manifest Manifest) hookio.Event {
+	if event.TranscriptPath == "" {
+		event.TranscriptPath = manifest.TranscriptPath
+	}
+	return event
 }

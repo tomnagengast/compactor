@@ -15,6 +15,7 @@ Core implementation map:
 - `internal/snippet/`: generates copyable Claude and Codex hook config snippets.
 - `internal/store/`: writes `.compactor/sessions/<agent>/<session-id>/`.
 - `internal/capsule/`: keeps reinjected context small.
+- `internal/transcript/`: extracts bounded timeline, decision, and tool-result candidates from JSONL transcripts.
 - `internal/cli/`: wires `compactor hook <agent> <phase>`.
 
 ## Normal loop

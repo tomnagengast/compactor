@@ -140,7 +140,7 @@ Document fields:
 ## Later slices
 
 - Hook installer diagnostics: report added, skipped, and removed hook groups explicitly.
-- Transcript parsing adapters for Claude JSONL and Codex transcript shapes.
+- Agent-specific transcript parsing adapters beyond the current generic JSONL extractor.
 - Decision and tool-result extraction.
 - Size limits and chunking.
 - Reference resolver command: `compactor open <ref>`.

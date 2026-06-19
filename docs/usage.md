@@ -33,10 +33,13 @@ The first document set is:
 
 - `manifest.json`: machine-readable metadata and document refs.
 - `index.md`: agent-readable map.
-- `timeline.md`: compaction event and transcript metadata.
-- `decisions.md`: placeholder for extracted decisions and constraints.
+- `timeline.md`: compaction event metadata plus bounded transcript extracts.
+- `decisions.md`: bounded heuristic candidates for decisions, constraints, and open questions.
+- `tool-results.md`: bounded references to tool calls and tool results.
 - `summaries/native.md`: native compact summary when the hook payload provides one.
 - `pending-context.md`: small reinjection capsule.
+
+Transcript parsing is intentionally bounded. `compactor` does not copy full raw transcripts by default; it extracts short timeline entries, heuristic decision candidates, and tool-result references so agents know where to look next.
 
 Example:
 
@@ -104,7 +107,7 @@ Like install, uninstall is a dry run unless `--write` is present. It removes hoo
 
 Planned command areas:
 
-- Add richer merge diagnostics and transcript parsing.
-- Parse transcripts into richer document shards.
+- Add richer hook merge diagnostics.
+- Improve transcript parsing with agent-specific adapters.
 - Resolve a reference back to its source document.
 - Validate generated documents for drift, missing references, and unsafe paths.
