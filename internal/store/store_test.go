@@ -96,6 +96,13 @@ func TestPreAndPostCompactWriteSessionDocs(t *testing.T) {
 	if !strings.Contains(string(tools), "tests passed") {
 		t.Fatalf("tool results missing transcript-derived candidate:\n%s", tools)
 	}
+	timeline, err := os.ReadFile(filepath.Join(sessionDir, "timeline.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(timeline), "tool=`go`") {
+		t.Fatalf("timeline missing promoted tool name:\n%s", timeline)
+	}
 }
 
 func hasDocument(manifest Manifest, id string) bool {

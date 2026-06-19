@@ -367,6 +367,18 @@ func timelineMarkdown(manifest Manifest, event hookio.Event, phase string, snaps
 		}
 		b.WriteString("\n")
 	}
+	if len(snapshot.Boundaries) > 0 {
+		b.WriteString("\n## Compaction boundaries\n\n")
+		for _, finding := range snapshot.Boundaries {
+			b.WriteString("- line ")
+			b.WriteString(fmt.Sprint(finding.Line))
+			b.WriteString(" ")
+			b.WriteString(finding.Kind)
+			b.WriteString(": ")
+			b.WriteString(finding.Text)
+			b.WriteString("\n")
+		}
+	}
 	b.WriteString("\n## Bounded transcript extracts\n\n")
 	if len(snapshot.Entries) == 0 {
 		b.WriteString("No transcript entries were extracted.\n")
@@ -387,6 +399,21 @@ func timelineMarkdown(manifest Manifest, event hookio.Event, phase string, snaps
 		if entry.Kind != "" && entry.Kind != entry.Role {
 			b.WriteString("/")
 			b.WriteString(entry.Kind)
+		}
+		if entry.ID != "" {
+			b.WriteString(" id=`")
+			b.WriteString(entry.ID)
+			b.WriteString("`")
+		}
+		if entry.ParentID != "" {
+			b.WriteString(" parent=`")
+			b.WriteString(entry.ParentID)
+			b.WriteString("`")
+		}
+		if entry.ToolName != "" {
+			b.WriteString(" tool=`")
+			b.WriteString(entry.ToolName)
+			b.WriteString("`")
 		}
 		b.WriteString(": ")
 		b.WriteString(entry.Text)
@@ -478,7 +505,7 @@ func transcriptSnapshot(event hookio.Event) transcript.Snapshot {
 	if event.TranscriptPath == "" {
 		return transcript.Snapshot{}
 	}
-	snapshot, err := transcript.Read(event.TranscriptPath, transcript.Options{})
+	snapshot, err := transcript.Read(event.TranscriptPath, transcript.Options{Agent: string(event.Agent)})
 	if err != nil {
 		return transcript.Snapshot{
 			SourcePath: event.TranscriptPath,

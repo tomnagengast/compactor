@@ -39,7 +39,7 @@ The first document set is:
 - `summaries/native.md`: native compact summary when the hook payload provides one.
 - `pending-context.md`: small reinjection capsule.
 
-Transcript parsing is intentionally bounded. `compactor` does not copy full raw transcripts by default; it extracts short timeline entries, heuristic decision candidates, and tool-result references so agents know where to look next.
+Transcript parsing is intentionally bounded. `compactor` does not copy full raw transcripts by default; it extracts short timeline entries, heuristic decision candidates, tool-result references, and agent-specific metadata so agents know where to look next. Claude and Codex entries are normalized enough to promote stable item IDs, parent IDs, tool names, and compaction boundary markers when those fields are present.
 
 Example:
 
@@ -108,6 +108,5 @@ Like install, uninstall is a dry run unless `--write` is present. It removes hoo
 Planned command areas:
 
 - Add richer hook merge diagnostics.
-- Improve transcript parsing with agent-specific adapters.
 - Resolve a reference back to its source document.
 - Validate generated documents for drift, missing references, and unsafe paths.
