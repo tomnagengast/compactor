@@ -139,7 +139,7 @@ Document fields:
 
 ## Later slices
 
-- Hook installer: write Claude `.claude/settings.json` and Codex hook config snippets after review.
+- Hook uninstaller: remove generated Claude/Codex hook groups after review.
 - Transcript parsing adapters for Claude JSONL and Codex transcript shapes.
 - Decision and tool-result extraction.
 - Size limits and chunking.

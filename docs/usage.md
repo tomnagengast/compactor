@@ -13,6 +13,8 @@ compactor hook codex postcompact
 compactor hook codex inject
 compactor hooks snippet claude
 compactor hooks snippet codex
+compactor hooks install claude
+compactor hooks install codex
 ```
 
 Each hook command reads one JSON hook payload from stdin. `precompact` and `postcompact` write local session documents and return hook-compatible JSON that allows native processing to continue. `inject` reads the pending capsule and returns hook-compatible JSON with `additionalContext`.
@@ -59,9 +61,37 @@ The snippet wires:
 - `SessionStart` with matcher `compact` to `compactor hook <agent> inject`.
 - `UserPromptSubmit` to `compactor hook <agent> inject`.
 
+## Hook install
+
+Use `hooks install` to merge the generated hook config into a target JSON file. The default is a dry run:
+
+```sh
+compactor hooks install claude --binary /absolute/path/to/compactor
+compactor hooks install codex --binary /absolute/path/to/compactor
+```
+
+Project-scope targets:
+
+- Claude: `.claude/settings.json`
+- Codex: `.codex/hooks.json`
+
+User-scope targets:
+
+- Claude: `~/.claude/settings.json`
+- Codex: `~/.codex/hooks.json`
+
+Options:
+
+- `--scope project|user`: choose the target layer. Defaults to `project`.
+- `--binary <path>`: command path to put in hook config.
+- `--write`: write the merged JSON. Without this flag, the command prints the target and resulting JSON.
+- `--dry-run`: explicit no-write mode.
+
+The installer preserves existing hook events and appends missing `compactor` hook groups. It does not edit Codex `config.toml`; Codex can load `hooks.json`, and using one hook representation per layer avoids startup warnings.
+
 Planned command areas:
 
-- Write hook snippets into agent settings after review.
+- Add richer merge diagnostics and uninstall support.
 - Parse transcripts into richer document shards.
 - Resolve a reference back to its source document.
 - Validate generated documents for drift, missing references, and unsafe paths.

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,5 +85,44 @@ func TestHooksSnippetPreservesExplicitBinary(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `'compactor' 'hook' 'codex' 'precompact'`) {
 		t.Fatalf("snippet did not preserve explicit binary:\n%s", out.String())
+	}
+}
+
+func TestHooksInstallDryRun(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	var out bytes.Buffer
+	err := Run([]string{"hooks", "install", "codex", "--binary", "compactor"}, strings.NewReader(""), &out, &bytes.Buffer{}, "test")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "target: "+filepath.Join(dir, ".codex", "hooks.json")) {
+		t.Fatalf("dry-run missing target:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "mode: create") {
+		t.Fatalf("dry-run missing mode:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".codex", "hooks.json")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote hooks file, err=%v", err)
+	}
+}
+
+func TestHooksInstallWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	var out bytes.Buffer
+	err := Run([]string{"hooks", "install", "claude", "--binary", "compactor", "--write"}, strings.NewReader(""), &out, &bytes.Buffer{}, "test")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	path := filepath.Join(dir, ".claude", "settings.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected hooks file: %v", err)
+	}
+	if !strings.Contains(string(data), "'compactor' 'hook' 'claude' 'precompact'") {
+		t.Fatalf("hooks file missing command:\n%s", data)
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/tomnagengast/compactor/internal/capsule"
 	"github.com/tomnagengast/compactor/internal/hookio"
+	"github.com/tomnagengast/compactor/internal/install"
 	"github.com/tomnagengast/compactor/internal/snippet"
 	"github.com/tomnagengast/compactor/internal/store"
 )
@@ -21,6 +22,7 @@ Usage:
   compactor --version
   compactor hook <agent> <phase>
   compactor hooks snippet <agent> [--binary <path>]
+  compactor hooks install <agent> [--scope project|user] [--binary <path>] [--write]
 
 Agents:
   claude
@@ -54,18 +56,33 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, ver
 }
 
 func runHooks(args []string, stdout io.Writer) error {
-	if len(args) < 2 || args[0] != "snippet" {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: compactor hooks <snippet|install> <agent>")
+	}
+
+	switch args[0] {
+	case "snippet":
+		return runHooksSnippet(args[1:], stdout)
+	case "install":
+		return runHooksInstall(args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown hooks command: %s", args[0])
+	}
+}
+
+func runHooksSnippet(args []string, stdout io.Writer) error {
+	if len(args) < 1 {
 		return fmt.Errorf("usage: compactor hooks snippet <agent> [--binary <path>]")
 	}
 
-	agent, err := hookio.ParseAgent(args[1])
+	agent, err := hookio.ParseAgent(args[0])
 	if err != nil {
 		return err
 	}
 
 	binary := "compactor"
 	binaryProvided := false
-	for i := 2; i < len(args); i++ {
+	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--binary":
 			if i+1 >= len(args) {
@@ -86,6 +103,73 @@ func runHooks(args []string, stdout io.Writer) error {
 	}
 
 	text, err := snippet.Hooks(agent, binary)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(stdout, text)
+	return err
+}
+
+func runHooksInstall(args []string, stdout io.Writer) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: compactor hooks install <agent> [--scope project|user] [--binary <path>] [--write]")
+	}
+
+	agent, err := hookio.ParseAgent(args[0])
+	if err != nil {
+		return err
+	}
+
+	binary := "compactor"
+	binaryProvided := false
+	scope := install.ScopeProject
+	write := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--binary":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--binary requires a path")
+			}
+			binary = args[i+1]
+			binaryProvided = true
+			i++
+		case "--scope":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--scope requires project or user")
+			}
+			scope = install.Scope(args[i+1])
+			i++
+		case "--write":
+			write = true
+		case "--dry-run":
+			write = false
+		default:
+			return fmt.Errorf("unknown hooks install flag: %s", args[i])
+		}
+	}
+
+	if !binaryProvided {
+		if exe, err := os.Executable(); err == nil && exe != "" {
+			binary = exe
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	plan, err := install.NewPlan(agent, scope, binary, cwd)
+	if err != nil {
+		return err
+	}
+	if write {
+		if err := plan.Write(); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "installed hooks for %s at %s\n", agent, plan.Target)
+		return nil
+	}
+	text, err := plan.DryRun()
 	if err != nil {
 		return err
 	}

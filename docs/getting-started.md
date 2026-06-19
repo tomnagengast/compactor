@@ -32,3 +32,12 @@ To generate hook config snippets without modifying your agent settings:
 go run ./cmd/compactor hooks snippet claude --binary compactor
 go run ./cmd/compactor hooks snippet codex --binary compactor
 ```
+
+To preview an install into project-local settings:
+
+```sh
+go run ./cmd/compactor hooks install claude --binary compactor
+go run ./cmd/compactor hooks install codex --binary compactor
+```
+
+Add `--write` only after reviewing the target and JSON. Project installs write `.claude/settings.json` for Claude and `.codex/hooks.json` for Codex.

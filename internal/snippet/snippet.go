@@ -10,18 +10,26 @@ import (
 )
 
 func Hooks(agent hookio.Agent, binary string) (string, error) {
+	config, err := Config(agent, binary)
+	if err != nil {
+		return "", err
+	}
+	return marshal(config)
+}
+
+func Config(agent hookio.Agent, binary string) (map[string]any, error) {
 	switch agent {
 	case hookio.AgentClaude:
-		return claude(binary)
+		return claude(binary), nil
 	case hookio.AgentCodex:
-		return codex(binary)
+		return codex(binary), nil
 	default:
-		return "", fmt.Errorf("unsupported agent: %s", agent)
+		return nil, fmt.Errorf("unsupported agent: %s", agent)
 	}
 }
 
-func claude(binary string) (string, error) {
-	config := map[string]any{
+func claude(binary string) map[string]any {
+	return map[string]any{
 		"hooks": map[string]any{
 			"PreCompact": []any{
 				matchedCommand("manual|auto", binary, "hook", "claude", "precompact"),
@@ -37,11 +45,10 @@ func claude(binary string) (string, error) {
 			},
 		},
 	}
-	return marshal(config)
 }
 
-func codex(binary string) (string, error) {
-	config := map[string]any{
+func codex(binary string) map[string]any {
+	return map[string]any{
 		"hooks": map[string]any{
 			"PreCompact": []any{
 				matchedCommand("manual|auto", binary, "hook", "codex", "precompact"),
@@ -57,7 +64,6 @@ func codex(binary string) (string, error) {
 			},
 		},
 	}
-	return marshal(config)
 }
 
 func matchedCommand(matcher string, binary string, args ...string) map[string]any {
