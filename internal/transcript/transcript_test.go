@@ -1,8 +1,10 @@
 package transcript
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -117,5 +119,98 @@ func TestReadCodexTranscriptPromotesItemsAndBoundaries(t *testing.T) {
 	}
 	if len(snapshot.Decisions) == 0 {
 		t.Fatalf("decisions = %#v, want decision candidate", snapshot.Decisions)
+	}
+}
+
+func TestReadSanitizedClaudeFixture(t *testing.T) {
+	snapshot, err := Read(filepath.Join("testdata", "claude-real-sanitized.jsonl"), Options{Agent: "claude", MaxEntries: 20, MaxTextBytes: 160})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LineCount != 5 {
+		t.Fatalf("line count = %d, want 5", snapshot.LineCount)
+	}
+	if len(snapshot.Entries) != 5 {
+		t.Fatalf("entries = %d, want 5", len(snapshot.Entries))
+	}
+	if got := snapshot.Entries[2].ID; got != "uuid-assistant-001" {
+		t.Fatalf("entry id = %q, want uuid-assistant-001", got)
+	}
+	if got := snapshot.Entries[2].ParentID; got != "uuid-user-001" {
+		t.Fatalf("parent id = %q, want uuid-user-001", got)
+	}
+	if got := snapshot.Entries[2].ToolName; got != "Bash" {
+		t.Fatalf("tool name = %q, want Bash", got)
+	}
+	if len(snapshot.Decisions) < 3 {
+		t.Fatalf("decisions = %#v, want at least 3 candidates", snapshot.Decisions)
+	}
+	if len(snapshot.ToolResults) < 2 {
+		t.Fatalf("tool results = %#v, want tool use and result", snapshot.ToolResults)
+	}
+}
+
+func TestReadSanitizedCodexFixture(t *testing.T) {
+	snapshot, err := Read(filepath.Join("testdata", "codex-real-sanitized.jsonl"), Options{Agent: "codex", MaxEntries: 20, MaxTextBytes: 160})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LineCount != 6 {
+		t.Fatalf("line count = %d, want 6", snapshot.LineCount)
+	}
+	if got := snapshot.Entries[1].ID; got != "msg_001" {
+		t.Fatalf("entry id = %q, want msg_001", got)
+	}
+	if got := snapshot.Entries[3].ToolName; got != "shell" {
+		t.Fatalf("tool name = %q, want shell", got)
+	}
+	if got := snapshot.Entries[4].ParentID; got != "call-alpha-001" {
+		t.Fatalf("parent id = %q, want call-alpha-001", got)
+	}
+	if len(snapshot.Boundaries) != 1 {
+		t.Fatalf("boundaries = %#v, want one compact boundary", snapshot.Boundaries)
+	}
+	if len(snapshot.Decisions) == 0 {
+		t.Fatalf("decisions = %#v, want decision candidates", snapshot.Decisions)
+	}
+}
+
+func TestSanitizedFixturesDoNotContainObviousLeaks(t *testing.T) {
+	leakPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`),
+		regexp.MustCompile(`/Users/tom\b`),
+		regexp.MustCompile(`(?i)\b(nagengast|bajka|skyview)\b`),
+		regexp.MustCompile(`(?i)private key`),
+		regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
+		regexp.MustCompile(`\bsk-[A-Za-z0-9]{20,}\b`),
+		regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9_]{20,}\b`),
+	}
+
+	err := filepath.WalkDir("testdata", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(data)
+		for _, pattern := range leakPatterns {
+			if match := pattern.FindString(text); match != "" {
+				t.Fatalf("%s contains possible private data matching %q", path, pattern.String())
+			}
+		}
+		for lineIndex, line := range strings.Split(text, "\n") {
+			if len(line) > 4096 && !strings.Contains(line, "REDACTED") {
+				t.Fatalf("%s line %d is oversized without redaction marker", path, lineIndex+1)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

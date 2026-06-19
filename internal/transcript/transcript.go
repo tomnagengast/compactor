@@ -384,7 +384,13 @@ func toolNameFromContent(value any) string {
 
 func containsCompact(value string) bool {
 	lower := strings.ToLower(value)
-	return strings.Contains(lower, "compact") || strings.Contains(lower, "compaction")
+	return lower == "compact" ||
+		strings.Contains(lower, "compaction") ||
+		strings.Contains(lower, "compact_boundary") ||
+		strings.Contains(lower, "compact-boundary") ||
+		strings.Contains(lower, "compact boundary") ||
+		strings.Contains(lower, "precompact") ||
+		strings.Contains(lower, "postcompact")
 }
 
 func firstString(raw map[string]any, keys ...string) string {

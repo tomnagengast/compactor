@@ -1,0 +1,6 @@
+{"timestamp":"2026-06-19T20:10:00Z","type":"session_meta","id":"codex-session-alpha","cwd":"/Users/example/project","model":"fixture-model"}
+{"timestamp":"2026-06-19T20:10:02Z","type":"response_item","item":{"id":"msg_001","type":"message","role":"user","content":[{"type":"input_text","text":"Let's add a resolver for compacted session refs."}]}}
+{"timestamp":"2026-06-19T20:10:05Z","type":"response_item","item":{"id":"msg_002","type":"message","role":"assistant","content":[{"type":"output_text","text":"Decision: use manifest backed compactor refs."}]}}
+{"timestamp":"2026-06-19T20:10:06Z","type":"response_item","item":{"id":"call_001","type":"function_call","name":"shell","call_id":"call-alpha-001","arguments":"{\"cmd\":\"go test ./internal/reference\"}"}}
+{"timestamp":"2026-06-19T20:10:08Z","type":"response_item","item":{"id":"result_001","type":"function_call_output","call_id":"call-alpha-001","output":"ok github.com/example/project/internal/reference"}}
+{"timestamp":"2026-06-19T20:10:12Z","type":"compaction","payload":{"id":"compact_001","type":"compact_boundary","summary":"Context compaction started for sanitized fixture."}}

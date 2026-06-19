@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tomnagengast/compactor/internal/hookio"
+	"github.com/tomnagengast/compactor/internal/validate"
 )
 
 func TestPreAndPostCompactWriteSessionDocs(t *testing.T) {
@@ -102,6 +103,52 @@ func TestPreAndPostCompactWriteSessionDocs(t *testing.T) {
 	}
 	if !strings.Contains(string(timeline), "tool=`go`") {
 		t.Fatalf("timeline missing promoted tool name:\n%s", timeline)
+	}
+}
+
+func TestPreCompactWithSanitizedFixtureValidatesSession(t *testing.T) {
+	dir := t.TempDir()
+	transcript, err := filepath.Abs(filepath.Join("..", "transcript", "testdata", "claude-real-sanitized.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewManager()
+	event := hookio.Event{
+		Agent:          hookio.AgentClaude,
+		SessionID:      "sanitized-session",
+		CWD:            dir,
+		TranscriptPath: transcript,
+		HookEventName:  "PreCompact",
+		Trigger:        "manual",
+	}
+	if _, err := manager.PreCompact(event); err != nil {
+		t.Fatalf("PreCompact returned error: %v", err)
+	}
+
+	sessionDir := filepath.Join(dir, ".compactor", "sessions", "claude", "sanitized-session")
+	report, err := validate.Run(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK() {
+		t.Fatalf("generated session failed validation:\n%s", report.String())
+	}
+
+	timeline, err := os.ReadFile(filepath.Join(sessionDir, "timeline.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(timeline), "id=`uuid-assistant-001`") || !strings.Contains(string(timeline), "tool=`Bash`") {
+		t.Fatalf("timeline missing promoted fixture metadata:\n%s", timeline)
+	}
+
+	pending, err := os.ReadFile(filepath.Join(sessionDir, "pending-context.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pending), "Decision: write compact docs") {
+		t.Fatalf("pending context should contain references, not fixture decisions:\n%s", pending)
 	}
 }
 
