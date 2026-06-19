@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
+
+dev/agent/context-check
+
+PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+if ! command -v go >/dev/null 2>&1; then
+	printf 'Go is required to run check-fast.\n' >&2
+	exit 1
+fi
+
+if ! command -v gofmt >/dev/null 2>&1; then
+	printf 'gofmt is required to run check-fast.\n' >&2
+	exit 1
+fi
+
+go_files=$(find . -path './.git' -prune -o -name '*.go' -print)
+if [ -n "$go_files" ]; then
+	unformatted=$(gofmt -l $go_files)
+	if [ -n "$unformatted" ]; then
+		printf 'Go files need gofmt:\n%s\n' "$unformatted" >&2
+		exit 1
+	fi
+fi
+
+go test ./...
+go build ./cmd/compactor
+go run ./cmd/compactor --help >/dev/null
+go run ./cmd/compactor --version >/dev/null

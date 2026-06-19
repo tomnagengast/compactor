@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
+
+printf 'repo: %s\n' "$ROOT"
+printf 'branch: '
+git branch --show-current
+printf 'status:\n'
+git status --short
+
+printf '\ncompactor-related processes:\n'
+ps -Ao pid,command | grep -E 'compactor|go run ./cmd/compactor' | grep -v grep || true
+
+printf '\nlistening ports often used during local development:\n'
+if command -v lsof >/dev/null 2>&1; then
+	lsof -nP -iTCP -sTCP:LISTEN | grep -E ':3000|:5173|:8080|compactor' || true
+else
+	printf 'lsof not available\n'
+fi
+

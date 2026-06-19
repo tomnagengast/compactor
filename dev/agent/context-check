@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
+
+required_files='
+README.md
+AGENTS.md
+CLAUDE.md
+LICENSE
+CHANGELOG.md
+SECURITY.md
+CONTRIBUTING.md
+docs/README.md
+docs/install.md
+docs/getting-started.md
+docs/usage.md
+docs/architecture.md
+docs/release.md
+docs/contributing.md
+docs/agents/README.md
+dev/agent/check-fast
+dev/agent/check-full
+dev/agent/dev-status
+'
+
+for file in $required_files; do
+	if [ ! -f "$file" ]; then
+		printf 'missing required file: %s\n' "$file" >&2
+		exit 1
+	fi
+done
+
+grep -q 'AGENTS.md' CLAUDE.md
+grep -q 'dev/agent/check-fast' AGENTS.md
+grep -q 'dev/agent/check-fast' README.md
+grep -q 'dev/agent/check-fast' docs/agents/README.md
+
+for file in dev/agent/check-fast dev/agent/check-full dev/agent/context-check dev/agent/dev-status; do
+	if [ ! -x "$file" ]; then
+		printf 'agent wrapper is not executable: %s\n' "$file" >&2
+		exit 1
+	fi
+done
+
