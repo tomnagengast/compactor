@@ -64,3 +64,25 @@ func TestHookDecodeFailureContinues(t *testing.T) {
 		t.Fatalf("unexpected system message: %#v", output["systemMessage"])
 	}
 }
+
+func TestHooksSnippetCommand(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"hooks", "snippet", "claude", "--binary", "/tmp/compactor"}, strings.NewReader(""), &out, &bytes.Buffer{}, "test")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), `'/tmp/compactor' 'hook' 'claude' 'precompact'`) {
+		t.Fatalf("snippet missing command:\n%s", out.String())
+	}
+}
+
+func TestHooksSnippetPreservesExplicitBinary(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"hooks", "snippet", "codex", "--binary", "compactor"}, strings.NewReader(""), &out, &bytes.Buffer{}, "test")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), `'compactor' 'hook' 'codex' 'precompact'`) {
+		t.Fatalf("snippet did not preserve explicit binary:\n%s", out.String())
+	}
+}

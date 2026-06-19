@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/tomnagengast/compactor/internal/capsule"
 	"github.com/tomnagengast/compactor/internal/hookio"
+	"github.com/tomnagengast/compactor/internal/snippet"
 	"github.com/tomnagengast/compactor/internal/store"
 )
 
@@ -18,6 +20,7 @@ Usage:
   compactor --help
   compactor --version
   compactor hook <agent> <phase>
+  compactor hooks snippet <agent> [--binary <path>]
 
 Agents:
   claude
@@ -43,8 +46,51 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, ver
 	if args[0] == "hook" {
 		return runHook(args[1:], stdin, stdout)
 	}
+	if args[0] == "hooks" {
+		return runHooks(args[1:], stdout)
+	}
 
 	return fmt.Errorf("unknown command: %s\n\n%s", args[0], usage)
+}
+
+func runHooks(args []string, stdout io.Writer) error {
+	if len(args) < 2 || args[0] != "snippet" {
+		return fmt.Errorf("usage: compactor hooks snippet <agent> [--binary <path>]")
+	}
+
+	agent, err := hookio.ParseAgent(args[1])
+	if err != nil {
+		return err
+	}
+
+	binary := "compactor"
+	binaryProvided := false
+	for i := 2; i < len(args); i++ {
+		switch args[i] {
+		case "--binary":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--binary requires a path")
+			}
+			binary = args[i+1]
+			binaryProvided = true
+			i++
+		default:
+			return fmt.Errorf("unknown hooks snippet flag: %s", args[i])
+		}
+	}
+
+	if !binaryProvided {
+		if exe, err := os.Executable(); err == nil && exe != "" {
+			binary = exe
+		}
+	}
+
+	text, err := snippet.Hooks(agent, binary)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(stdout, text)
+	return err
 }
 
 func runHook(args []string, stdin io.Reader, stdout io.Writer) error {

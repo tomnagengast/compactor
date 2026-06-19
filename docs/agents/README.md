@@ -11,6 +11,7 @@ The product concept is to preserve compacted agent context in local documents an
 Core implementation map:
 
 - `internal/hookio/`: parses hook JSON and emits hook-compatible JSON.
+- `internal/snippet/`: generates copyable Claude and Codex hook config snippets.
 - `internal/store/`: writes `.compactor/sessions/<agent>/<session-id>/`.
 - `internal/capsule/`: keeps reinjected context small.
 - `internal/cli/`: wires `compactor hook <agent> <phase>`.

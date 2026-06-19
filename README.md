@@ -13,6 +13,7 @@ This repository has an early hook-driven implementation. The CLI can read Claude
 ```sh
 go run ./cmd/compactor --help
 go run ./cmd/compactor hook claude precompact < hook-event.json
+go run ./cmd/compactor hooks snippet claude --binary compactor
 ```
 
 ## Install

@@ -25,3 +25,10 @@ Run the normal repo verification loop after edits:
 ```sh
 dev/agent/check-fast
 ```
+
+To generate hook config snippets without modifying your agent settings:
+
+```sh
+go run ./cmd/compactor hooks snippet claude --binary compactor
+go run ./cmd/compactor hooks snippet codex --binary compactor
+```
