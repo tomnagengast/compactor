@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tomnagengast/compactor/internal/extract"
 	"github.com/tomnagengast/compactor/internal/hookio"
 	"github.com/tomnagengast/compactor/internal/reference"
 	"github.com/tomnagengast/compactor/internal/transcript"
@@ -263,16 +264,17 @@ func (manifest *Manifest) ensureDocuments(includeNativeSummary bool) {
 }
 
 func writeBaseDocuments(manifest Manifest, event hookio.Event, phase string, snapshot transcript.Snapshot) error {
+	extracted := extract.Analyze(snapshot)
 	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "index.md"), []byte(indexMarkdown(manifest)), 0o600); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "timeline.md"), []byte(timelineMarkdown(manifest, event, phase, snapshot)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "decisions.md"), []byte(decisionsMarkdown(manifest, snapshot)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "decisions.md"), []byte(decisionsMarkdown(manifest, extracted)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "tool-results.md"), []byte(toolResultsMarkdown(snapshot)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(manifest.SessionDir, "tool-results.md"), []byte(toolResultsMarkdown(extracted)), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -430,44 +432,98 @@ func timelineMarkdown(manifest Manifest, event hookio.Event, phase string, snaps
 	return b.String()
 }
 
-func decisionsMarkdown(_ Manifest, snapshot transcript.Snapshot) string {
+func decisionsMarkdown(_ Manifest, result extract.Result) string {
 	var b strings.Builder
 	b.WriteString("# Decisions and constraints\n\n")
 	b.WriteString("These are bounded heuristic candidates extracted from compacted context. Verify against the source transcript before treating them as authoritative.\n\n")
-	if len(snapshot.Decisions) == 0 {
+	if len(result.Decisions) == 0 {
 		b.WriteString("No decision candidates were extracted.\n")
 		return b.String()
 	}
-	for _, finding := range snapshot.Decisions {
-		b.WriteString("- line ")
-		b.WriteString(fmt.Sprint(finding.Line))
-		b.WriteString(" ")
-		b.WriteString(finding.Kind)
-		b.WriteString(": ")
-		b.WriteString(finding.Text)
-		b.WriteString("\n")
-	}
+	writeFindingSection(&b, "Decisions", result.Decisions, "decision", false)
+	writeFindingSection(&b, "Constraints", result.Decisions, "constraint", false)
+	writeFindingSection(&b, "Open questions", result.Decisions, "open-question", false)
+	writeFindingSection(&b, "Next actions", result.Decisions, "next-action", false)
+	writeFindingSection(&b, "Low-confidence candidates", result.Decisions, "", true)
 	return b.String()
 }
 
-func toolResultsMarkdown(snapshot transcript.Snapshot) string {
+func toolResultsMarkdown(result extract.Result) string {
 	var b strings.Builder
 	b.WriteString("# Tool results\n\n")
 	b.WriteString("These are bounded references to tool calls or tool results extracted from compacted context. Full raw tool output is not copied by default.\n\n")
-	if len(snapshot.ToolResults) == 0 {
+	if len(result.Tools) == 0 {
 		b.WriteString("No tool result candidates were extracted.\n")
 		return b.String()
 	}
-	for _, finding := range snapshot.ToolResults {
-		b.WriteString("- line ")
-		b.WriteString(fmt.Sprint(finding.Line))
-		b.WriteString(" ")
-		b.WriteString(finding.Kind)
-		b.WriteString(": ")
-		b.WriteString(finding.Text)
-		b.WriteString("\n")
-	}
+	writeFindingSection(&b, "Tool calls", result.Tools, "tool-call", false)
+	writeFindingSection(&b, "Tool results", result.Tools, "tool-result", false)
+	writeFindingSection(&b, "Failures or warnings", result.Tools, "tool-failure", false)
 	return b.String()
+}
+
+func writeFindingSection(b *strings.Builder, title string, findings []extract.Finding, category string, lowConfidence bool) {
+	var matched []extract.Finding
+	for _, finding := range findings {
+		if lowConfidence {
+			if finding.Confidence == "low" {
+				matched = append(matched, finding)
+			}
+			continue
+		}
+		if finding.Category == category && finding.Confidence != "low" {
+			matched = append(matched, finding)
+		}
+	}
+	if len(matched) == 0 {
+		return
+	}
+	b.WriteString("## ")
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	for _, finding := range matched {
+		writeFinding(b, finding)
+	}
+	b.WriteByte('\n')
+}
+
+func writeFinding(b *strings.Builder, finding extract.Finding) {
+	b.WriteString("- `")
+	b.WriteString(finding.ID)
+	b.WriteString("` line ")
+	b.WriteString(fmt.Sprint(finding.Line))
+	b.WriteString(" ")
+	b.WriteString(finding.Category)
+	b.WriteString("/")
+	b.WriteString(finding.Confidence)
+	if finding.EntryID != "" {
+		b.WriteString(" entry=`")
+		b.WriteString(finding.EntryID)
+		b.WriteString("`")
+	}
+	if finding.ParentID != "" {
+		b.WriteString(" parent=`")
+		b.WriteString(finding.ParentID)
+		b.WriteString("`")
+	}
+	if finding.ToolName != "" {
+		b.WriteString(" tool=`")
+		b.WriteString(finding.ToolName)
+		b.WriteString("`")
+	}
+	if finding.ToolCallID != "" && finding.ToolCallID != finding.EntryID {
+		b.WriteString(" call=`")
+		b.WriteString(finding.ToolCallID)
+		b.WriteString("`")
+	}
+	b.WriteString(": ")
+	b.WriteString(finding.Text)
+	if finding.Reason != "" {
+		b.WriteString(" (")
+		b.WriteString(finding.Reason)
+		b.WriteString(")")
+	}
+	b.WriteByte('\n')
 }
 
 func nativeSummaryMarkdown(event hookio.Event) string {

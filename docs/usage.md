@@ -43,6 +43,8 @@ The first document set is:
 
 Transcript parsing is intentionally bounded. `compactor` does not copy full raw transcripts by default; it extracts short timeline entries, heuristic decision candidates, tool-result references, and agent-specific metadata so agents know where to look next. Claude and Codex entries are normalized enough to promote stable item IDs, parent IDs, tool names, and compaction boundary markers when those fields are present.
 
+Decision and tool extraction is deterministic. `decisions.md` groups candidates into decisions, constraints, open questions, next actions, and low-confidence candidates. `tool-results.md` separates tool calls from tool results and includes source line, confidence, entry id, tool name, and linked call id when known.
+
 Generated `index.md` and `pending-context.md` include both local file paths and stable refs shaped like:
 
 ```text
