@@ -126,3 +126,25 @@ func TestHooksInstallWrite(t *testing.T) {
 		t.Fatalf("hooks file missing command:\n%s", data)
 	}
 }
+
+func TestHooksUninstallWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	var out bytes.Buffer
+	if err := Run([]string{"hooks", "install", "codex", "--binary", "compactor", "--write"}, strings.NewReader(""), &out, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
+	out.Reset()
+	if err := Run([]string{"hooks", "uninstall", "codex", "--binary", "compactor", "--write"}, strings.NewReader(""), &out, &bytes.Buffer{}, "test"); err != nil {
+		t.Fatalf("uninstall returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatalf("expected hooks file: %v", err)
+	}
+	if strings.Contains(string(data), "'compactor' 'hook' 'codex'") {
+		t.Fatalf("hooks file still contains compactor command:\n%s", data)
+	}
+}

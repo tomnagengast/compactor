@@ -41,3 +41,10 @@ go run ./cmd/compactor hooks install codex --binary compactor
 ```
 
 Add `--write` only after reviewing the target and JSON. Project installs write `.claude/settings.json` for Claude and `.codex/hooks.json` for Codex.
+
+Rollback is also dry-run by default:
+
+```sh
+go run ./cmd/compactor hooks uninstall claude --binary compactor
+go run ./cmd/compactor hooks uninstall codex --binary compactor
+```

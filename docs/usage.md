@@ -15,6 +15,8 @@ compactor hooks snippet claude
 compactor hooks snippet codex
 compactor hooks install claude
 compactor hooks install codex
+compactor hooks uninstall claude
+compactor hooks uninstall codex
 ```
 
 Each hook command reads one JSON hook payload from stdin. `precompact` and `postcompact` write local session documents and return hook-compatible JSON that allows native processing to continue. `inject` reads the pending capsule and returns hook-compatible JSON with `additionalContext`.
@@ -89,9 +91,20 @@ Options:
 
 The installer preserves existing hook events and appends missing `compactor` hook groups. It does not edit Codex `config.toml`; Codex can load `hooks.json`, and using one hook representation per layer avoids startup warnings.
 
+## Hook uninstall
+
+Use `hooks uninstall` to remove the generated `compactor` hook groups while preserving unrelated hooks:
+
+```sh
+compactor hooks uninstall claude --binary /absolute/path/to/compactor
+compactor hooks uninstall codex --binary /absolute/path/to/compactor
+```
+
+Like install, uninstall is a dry run unless `--write` is present. It removes hook groups by exact generated command string, so pass the same `--binary` value used during install.
+
 Planned command areas:
 
-- Add richer merge diagnostics and uninstall support.
+- Add richer merge diagnostics and transcript parsing.
 - Parse transcripts into richer document shards.
 - Resolve a reference back to its source document.
 - Validate generated documents for drift, missing references, and unsafe paths.

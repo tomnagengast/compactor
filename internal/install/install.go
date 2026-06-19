@@ -18,11 +18,12 @@ const (
 )
 
 type Plan struct {
-	Agent  hookio.Agent
-	Scope  Scope
-	Target string
-	Config map[string]any
-	Exists bool
+	Agent     hookio.Agent
+	Scope     Scope
+	Target    string
+	Config    map[string]any
+	Exists    bool
+	Operation string
 }
 
 func NewPlan(agent hookio.Agent, scope Scope, binary string, cwd string) (Plan, error) {
@@ -46,11 +47,41 @@ func NewPlan(agent hookio.Agent, scope Scope, binary string, cwd string) (Plan, 
 	merged := merge(existing, config)
 
 	return Plan{
-		Agent:  agent,
-		Scope:  scope,
-		Target: target,
-		Config: merged,
-		Exists: exists,
+		Agent:     agent,
+		Scope:     scope,
+		Target:    target,
+		Config:    merged,
+		Exists:    exists,
+		Operation: "install",
+	}, nil
+}
+
+func NewUninstallPlan(agent hookio.Agent, scope Scope, binary string, cwd string) (Plan, error) {
+	if scope != ScopeProject && scope != ScopeUser {
+		return Plan{}, fmt.Errorf("unsupported install scope: %s", scope)
+	}
+	target, err := targetPath(agent, scope, cwd)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	config, err := snippet.Config(agent, binary)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	existing, exists, err := readConfig(target)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	return Plan{
+		Agent:     agent,
+		Scope:     scope,
+		Target:    target,
+		Config:    remove(existing, config),
+		Exists:    exists,
+		Operation: "uninstall",
 	}, nil
 }
 
@@ -72,10 +103,16 @@ func (plan Plan) DryRun() (string, error) {
 	if plan.Exists {
 		status = "update"
 	}
+	if !plan.Exists && plan.Operation == "uninstall" {
+		status = "missing"
+	}
 	return fmt.Sprintf("target: %s\nmode: %s\n\n%s", plan.Target, status, body), nil
 }
 
 func (plan Plan) Write() error {
+	if !plan.Exists && plan.Operation == "uninstall" {
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(plan.Target), 0o755); err != nil {
 		return err
 	}
@@ -145,6 +182,35 @@ func merge(existing map[string]any, addition map[string]any) map[string]any {
 		existingHooks[eventName] = current
 	}
 	out["hooks"] = existingHooks
+	return out
+}
+
+func remove(existing map[string]any, removal map[string]any) map[string]any {
+	out := cloneMap(existing)
+	existingHooks, _ := out["hooks"].(map[string]any)
+	if existingHooks == nil {
+		return out
+	}
+	removalHooks, _ := removal["hooks"].(map[string]any)
+	for eventName, rawGroups := range removalHooks {
+		current := toSlice(existingHooks[eventName])
+		next := current[:0]
+		for _, group := range current {
+			if !containsCommand(toSlice(rawGroups), group) {
+				next = append(next, group)
+			}
+		}
+		if len(next) == 0 {
+			delete(existingHooks, eventName)
+		} else {
+			existingHooks[eventName] = next
+		}
+	}
+	if len(existingHooks) == 0 {
+		delete(out, "hooks")
+	} else {
+		out["hooks"] = existingHooks
+	}
 	return out
 }
 

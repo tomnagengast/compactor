@@ -139,7 +139,7 @@ Document fields:
 
 ## Later slices
 
-- Hook uninstaller: remove generated Claude/Codex hook groups after review.
+- Hook installer diagnostics: report added, skipped, and removed hook groups explicitly.
 - Transcript parsing adapters for Claude JSONL and Codex transcript shapes.
 - Decision and tool-result extraction.
 - Size limits and chunking.
