@@ -5,6 +5,7 @@ Start here:
 - [Install](./install.md): current source install and verification path.
 - [Getting started](./getting-started.md): first successful local workflow.
 - [Usage](./usage.md): current and planned command surface.
+- [Dogfood](./dogfood.md): safe real-run workflow for Claude and Codex hooks.
 - [Architecture](./architecture.md): product model, boundaries, and early design questions.
 - [Compaction survey](./research/compaction-survey.md): official Claude and Codex compaction surfaces.
 - [Release](./release.md): release expectations once packaging exists.

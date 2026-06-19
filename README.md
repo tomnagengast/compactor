@@ -62,6 +62,7 @@ Non-goals for the first version:
 - [Install](./docs/install.md)
 - [Getting started](./docs/getting-started.md)
 - [Usage](./docs/usage.md)
+- [Dogfood](./docs/dogfood.md)
 - [Architecture](./docs/architecture.md)
 - [Release](./docs/release.md)
 - [Contributing](./docs/contributing.md)
