@@ -29,6 +29,8 @@ if [ -n "$go_files" ]; then
 fi
 
 go test ./...
-go build ./cmd/compactor
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+go build -o "$tmpdir/compactor" ./cmd/compactor
 go run ./cmd/compactor --help >/dev/null
 go run ./cmd/compactor --version >/dev/null

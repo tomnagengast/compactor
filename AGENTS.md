@@ -4,11 +4,15 @@
 
 `compactor` is a planned local-first CLI that helps Claude and Codex turn compaction into progressive disclosure. The intended workflow is to convert older message history and surrounding context into durable documents, then keep compact references in the active context window so agents can reopen detail only when needed.
 
-The current implementation is only a planning scaffold. The CLI entry point is `cmd/compactor/main.go`, and product design notes live under `docs/`.
+The current implementation supports an early hook workflow. The CLI entry point is `cmd/compactor/main.go`, core packages live under `internal/`, and product design notes live under `docs/`.
 
 ## Repository Map
 
 - `cmd/compactor/`: CLI entry point.
+- `internal/cli/`: command dispatch.
+- `internal/hookio/`: hook JSON parsing and hook-compatible output.
+- `internal/store/`: local compaction document writer.
+- `internal/capsule/`: compact reinjection capsule helpers.
 - `docs/`: user and design docs.
 - `docs/agents/README.md`: deeper context for coding agents.
 - `dev/agent/`: non-interactive wrappers for status and checks.
@@ -39,4 +43,3 @@ For documentation-only changes, read the changed files back and run `dev/agent/c
 For code changes, run `dev/agent/check-fast`. Run `dev/agent/check-full` before landing broader CLI, release, or workflow changes.
 
 When commands, architecture, ownership, or feedback loops change, update this file or `docs/agents/README.md` in the same change.
-

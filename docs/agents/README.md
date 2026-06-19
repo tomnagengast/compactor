@@ -4,9 +4,16 @@ Read [../../AGENTS.md](../../AGENTS.md) first. This page is the deeper map for a
 
 ## Current state
 
-The repo is a planning scaffold for a Go CLI. The only implemented behavior is help and version output in `cmd/compactor/main.go`.
+The repo is an early Go CLI. It supports help/version output and hook commands for Claude and Codex compaction events.
 
 The product concept is to preserve compacted agent context in local documents and replace active-window bulk with references. Claude and Codex are the first target adapters.
+
+Core implementation map:
+
+- `internal/hookio/`: parses hook JSON and emits hook-compatible JSON.
+- `internal/store/`: writes `.compactor/sessions/<agent>/<session-id>/`.
+- `internal/capsule/`: keeps reinjected context small.
+- `internal/cli/`: wires `compactor hook <agent> <phase>`.
 
 ## Normal loop
 
@@ -29,4 +36,3 @@ When product decisions land, update the smallest relevant surface:
 - Deterministic checks in `dev/agent/`.
 
 Do not let durable decisions live only in chat history.
-

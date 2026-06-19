@@ -1,5 +1,6 @@
 .DS_Store
+/.compactor/
 /compactor
 /dist/
+/insights/
 /tmp/
-

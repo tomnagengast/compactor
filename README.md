@@ -1,6 +1,6 @@
 # compactor
 
-**Turn agent compaction into progressive disclosure.** `compactor` is a planned CLI for converting dense Claude and Codex session context into durable documents, then leaving agents with references they can reopen only when needed.
+**Turn agent compaction into progressive disclosure.** `compactor` is a CLI for converting dense Claude and Codex session context into durable local documents, then leaving agents with compact references they can reopen only when needed.
 
 [![Status](https://img.shields.io/badge/status-planning-lightgrey.svg)](#roadmap)
 [![CI](https://github.com/tomnagengast/compactor/actions/workflows/ci.yml/badge.svg)](https://github.com/tomnagengast/compactor/actions/workflows/ci.yml)
@@ -8,10 +8,11 @@
 
 ## Current status
 
-This repository is in planning scaffold state. The CLI can report help and version information, but compaction commands are intentionally not implemented until the Claude and Codex compaction model is mapped.
+This repository has an early hook-driven implementation. The CLI can read Claude and Codex hook JSON, write local compaction documents under `.compactor/`, and emit a small reinjection capsule for prompt-cache-friendly progressive disclosure.
 
 ```sh
 go run ./cmd/compactor --help
+go run ./cmd/compactor hook claude precompact < hook-event.json
 ```
 
 ## Install
@@ -41,7 +42,7 @@ This follows the same local-first family pattern as:
 
 ## Early product boundaries
 
-Initial design work is focused on Claude Code and Codex. The first useful version should understand each agent's compaction surface, produce files that are easy for agents to rediscover, and avoid depending on hosted services or private APIs.
+Initial implementation work is focused on Claude Code and Codex. The first useful version understands each agent's compaction hook surface, produces files that are easy for agents to rediscover, and avoids hosted services or private APIs.
 
 Non-goals for the first version:
 
@@ -75,9 +76,8 @@ The wrappers are intentionally small while the repo is young. They will become t
 
 ## Roadmap
 
-1. Research Claude and Codex compaction behavior from official docs and observed local surfaces.
-2. Design the document model for compacted history, references, and retrieval.
-3. Implement a first manual workflow that converts captured context into files.
-4. Add agent-specific adapters for Claude and Codex.
+1. Add hook installer snippets for Claude and Codex.
+2. Parse sanitized Claude and Codex transcript fixtures.
+3. Extract decisions, constraints, and tool-result references from compacted history.
+4. Add a reference resolver for `compactor://` or equivalent stable refs.
 5. Add release packaging, Homebrew distribution, and richer smoke tests.
-
