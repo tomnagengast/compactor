@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add repeatable Codex app-server dogfood wrapper and document verified native compact event shape.
 - Add hook-driven compaction workflow for Claude and Codex.
 - Add hook snippet, install, uninstall, and dry-run diagnostics.
 - Add bounded transcript parsing, deterministic extraction, reference resolution, and session validation.

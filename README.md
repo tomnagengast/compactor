@@ -2,13 +2,13 @@
 
 **Turn agent compaction into progressive disclosure.** `compactor` is a CLI for converting dense Claude and Codex session context into durable local documents, then leaving agents with compact references they can reopen only when needed.
 
-[![Status](https://img.shields.io/badge/status-planning-lightgrey.svg)](#roadmap)
+[![Status](https://img.shields.io/badge/status-alpha-yellow.svg)](#roadmap)
 [![CI](https://github.com/tomnagengast/compactor/actions/workflows/ci.yml/badge.svg)](https://github.com/tomnagengast/compactor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Current status
 
-This repository has an early hook-driven implementation. The CLI can read Claude and Codex hook JSON, write local compaction documents under `.compactor/`, extract bounded agent-normalized transcript context, and emit a small reinjection capsule for prompt-cache-friendly progressive disclosure.
+This repository has an alpha hook-driven implementation. The CLI can read Claude and Codex hook JSON, write local compaction documents under `.compactor/`, extract bounded agent-normalized transcript context, and emit a small reinjection capsule for prompt-cache-friendly progressive disclosure. Native Claude and Codex compaction have both been dogfooded with project hooks.
 
 ```sh
 go run ./cmd/compactor --help
@@ -31,11 +31,12 @@ go build ./cmd/compactor
 ./compactor --help
 ```
 
-Release packaging is configured through GoReleaser. Until the first `v0.1.0` tag is published, build from source. After a release exists, install from GitHub release assets or Homebrew:
+Install the latest release with Homebrew:
 
 ```sh
 brew tap tomnagengast/tap
 brew install --cask tomnagengast/tap/compactor-cli
+compactor --version
 ```
 
 ## Why this exists
@@ -52,7 +53,7 @@ This follows the same local-first family pattern as:
 
 ## Early product boundaries
 
-Initial implementation work is focused on Claude Code and Codex. The first useful version understands each agent's compaction hook surface, produces files that are easy for agents to rediscover, and avoids hosted services or private APIs.
+Initial implementation work is focused on Claude Code and Codex. The current version understands each agent's compaction hook surface, produces files that are easy for agents to rediscover, and avoids hosted services or private APIs.
 
 Non-goals for the first version:
 
@@ -87,5 +88,6 @@ The wrappers are intentionally small while the repo is young. They will become t
 
 ## Roadmap
 
-1. Add hook installer snippets for Claude and Codex.
-2. Cut and verify the first `v0.1.0` release.
+1. Harden the real-agent dogfood harnesses and fixtures.
+2. Improve extraction quality for decisions, tool results, and compact boundaries.
+3. Add a resolver surface that agents can call directly, such as MCP or a tighter command workflow.

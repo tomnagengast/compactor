@@ -19,6 +19,8 @@ The first implementation uses hook commands:
 - `resolve`: read a local path or `compactor://session/<agent>/<session>/<doc>` ref and print bounded document content.
 - `validate`: check a generated session store for missing documents, duplicate ids, missing pending context, and stale refs.
 
+Injection is intentionally wired to both compact session starts and normal prompt submission. `SessionStart(source=compact)` is the narrow post-compact continuation path when an agent exposes it. `UserPromptSubmit` is the reliable fallback for follow-up prompts and is required for the verified Codex app-server path. The injected text must remain a small reference capsule so repeated prompt-submit hooks do not rehydrate full history or churn early prompt-cache layers.
+
 ## Constraints
 
 The first implementation should be local-first, deterministic where possible, and careful with sensitive data. It should avoid hosted storage and private APIs unless a later product decision changes that boundary.
@@ -31,12 +33,9 @@ Transcript parsing is bounded and local. `timeline.md`, `decisions.md`, and `too
 
 ## Open design questions
 
-- Where can Claude and Codex reliably intercept or influence compaction?
-- Is the first workflow automatic, manual, or a documented prompt pattern?
 - Should documents live inside the repo, under an agent data directory, or in a project-local hidden directory?
 - What metadata is enough for retrieval without rebuilding a full search engine?
 - How should references handle private tool output, secrets, and user-redacted material?
-- Should `inject` be wired primarily to `SessionStart(source=compact)` or `UserPromptSubmit` for each agent?
 - What hook-install diagnostics are useful enough to show without making dry runs noisy?
 
 See [research/compaction-survey.md](./research/compaction-survey.md) for the current official-docs summary of Claude and Codex compaction surfaces.

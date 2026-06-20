@@ -1,6 +1,6 @@
 # Release
 
-Release packaging is configured with GoReleaser. The first release tag has not been cut yet.
+Release packaging is configured with GoReleaser. Tags publish GitHub release assets and update the Homebrew cask in `tomnagengast/homebrew-tap`.
 
 ## Prerequisites
 
@@ -25,8 +25,8 @@ goreleaser release --snapshot --clean
 3. Tag an annotated semver release:
 
    ```sh
-   git tag -a v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.1.2 -m "v0.1.2"
+   git push origin v0.1.2
    ```
 
 4. The `release` workflow publishes GitHub release assets, checksums, and the Homebrew cask.

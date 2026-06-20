@@ -23,6 +23,7 @@ docs/agents/README.md
 dev/agent/check-fast
 dev/agent/check-full
 dev/agent/dev-status
+dev/agent/dogfood-codex-appserver
 '
 
 for file in $required_files; do
@@ -37,10 +38,9 @@ grep -q 'dev/agent/check-fast' AGENTS.md
 grep -q 'dev/agent/check-fast' README.md
 grep -q 'dev/agent/check-fast' docs/agents/README.md
 
-for file in dev/agent/check-fast dev/agent/check-full dev/agent/context-check dev/agent/dev-status; do
+for file in dev/agent/check-fast dev/agent/check-full dev/agent/context-check dev/agent/dev-status dev/agent/dogfood-codex-appserver; do
 	if [ ! -x "$file" ]; then
 		printf 'agent wrapper is not executable: %s\n' "$file" >&2
 		exit 1
 	fi
 done
-

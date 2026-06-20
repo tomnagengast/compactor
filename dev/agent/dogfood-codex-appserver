@@ -1,0 +1,297 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
+
+PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+CODEX_BIN=${CODEX_BIN:-codex}
+GO_BIN=${GO_BIN:-go}
+NODE_BIN=${NODE_BIN:-node}
+
+for bin in "$CODEX_BIN" "$GO_BIN" "$NODE_BIN"; do
+	if ! command -v "$bin" >/dev/null 2>&1; then
+		printf '%s is required for Codex app-server dogfood.\n' "$bin" >&2
+		exit 1
+	fi
+done
+
+tmpdir=$(mktemp -d)
+hooks_path="$ROOT/.codex/hooks.json"
+hooks_backup="$tmpdir/hooks.json.backup"
+had_hooks=0
+
+cleanup() {
+	status=$?
+	if [ "$had_hooks" -eq 1 ]; then
+		mkdir -p "$(dirname "$hooks_path")"
+		cp "$hooks_backup" "$hooks_path"
+	else
+		rm -f "$hooks_path"
+		rmdir "$ROOT/.codex" 2>/dev/null || true
+	fi
+	rm -rf "$tmpdir"
+	exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+if [ -f "$hooks_path" ]; then
+	had_hooks=1
+	cp "$hooks_path" "$hooks_backup"
+fi
+
+"$GO_BIN" build -o "$tmpdir/compactor" ./cmd/compactor
+"$tmpdir/compactor" hooks install codex --binary "$tmpdir/compactor" --write >/dev/null
+
+COMPACTOR_DOGFOOD_ROOT=$ROOT \
+COMPACTOR_DOGFOOD_CODEX=$CODEX_BIN \
+COMPACTOR_DOGFOOD_COMPACTOR=$tmpdir/compactor \
+"$NODE_BIN" <<'NODE'
+const { spawn } = require("child_process");
+
+const cwd = process.env.COMPACTOR_DOGFOOD_ROOT;
+const codex = process.env.COMPACTOR_DOGFOOD_CODEX || "codex";
+const compactor = process.env.COMPACTOR_DOGFOOD_COMPACTOR;
+
+let nextId = 1;
+let buffer = "";
+let compactStarted = false;
+let compactTurnId = null;
+let followupTurnId = null;
+let followupText = "";
+const pending = new Map();
+const waiters = [];
+const events = [];
+
+const child = spawn(
+  codex,
+  ["app-server", "--listen", "stdio://", "-c", "bypass_hook_trust=true", "-c", "notify=[]"],
+  {
+    cwd,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}` },
+  },
+);
+
+function send(method, params) {
+  const id = nextId++;
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  return new Promise((resolve, reject) => pending.set(id, { method, resolve, reject }));
+}
+
+function notify(method, params) {
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
+}
+
+function waitFor(label, predicate, timeoutMs = 180000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout waiting for ${label}`)), timeoutMs);
+    waiters.push({ label, predicate, resolve, reject, timer });
+  });
+}
+
+function dispatch(message) {
+  if (message.method) {
+    events.push(message);
+  }
+  if (message.method === "turn/started" && compactStarted && compactTurnId === null) {
+    compactTurnId = message.params.turn.id;
+  }
+  if (
+    message.method === "item/agentMessage/delta" &&
+    followupTurnId !== null &&
+    message.params.turnId === followupTurnId
+  ) {
+    followupText += message.params.delta;
+  }
+  for (let i = waiters.length - 1; i >= 0; i--) {
+    const waiter = waiters[i];
+    let matched = false;
+    try {
+      matched = waiter.predicate(message);
+    } catch (_) {
+      matched = false;
+    }
+    if (matched) {
+      clearTimeout(waiter.timer);
+      waiters.splice(i, 1);
+      waiter.resolve(message);
+    }
+  }
+}
+
+child.stdout.on("data", (chunk) => {
+  buffer += chunk.toString("utf8");
+  const lines = buffer.split(/\n/);
+  buffer = lines.pop();
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      process.stderr.write(`non-json app-server output: ${line.slice(0, 200)}\n`);
+      continue;
+    }
+    if (message.id && pending.has(message.id)) {
+      const request = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) {
+        request.reject(new Error(`${request.method}: ${JSON.stringify(message.error)}`));
+      } else {
+        request.resolve(message.result);
+      }
+    }
+    dispatch(message);
+  }
+});
+
+child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+
+function input(text) {
+  return [{ type: "text", text, text_elements: [] }];
+}
+
+async function startTurn(threadId, text) {
+  const response = await send("turn/start", {
+    threadId,
+    input: input(text),
+    cwd,
+    approvalPolicy: "never",
+    sandboxPolicy: { type: "dangerFullAccess" },
+    effort: "low",
+    summary: "none",
+  });
+  const turnId = response.turn.id;
+  await waitFor(
+    `turn ${turnId}`,
+    (message) =>
+      message.method === "turn/completed" &&
+      message.params.threadId === threadId &&
+      message.params.turn.id === turnId,
+  );
+  return turnId;
+}
+
+function hookCompleted(eventName) {
+  return events.some(
+    (event) =>
+      event.method === "hook/completed" &&
+      (event.params.run.eventName || event.params.run.event_name) === eventName,
+  );
+}
+
+function itemCompleted(turnId, itemType) {
+  return events.some(
+    (event) =>
+      event.method === "item/completed" &&
+      event.params.turnId === turnId &&
+      (event.params.item.type || event.params.item.kind) === itemType,
+  );
+}
+
+(async () => {
+  let threadId = null;
+  try {
+    await send("initialize", {
+      clientInfo: { name: "compactor-codex-dogfood", title: "Compactor Codex Dogfood", version: "0.1.0" },
+      capabilities: null,
+    });
+    notify("initialized");
+
+    const started = await send("thread/start", {
+      cwd,
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      config: { bypass_hook_trust: true },
+      ephemeral: false,
+      threadSource: "compactor-dogfood",
+    });
+    threadId = started.thread.id;
+
+    await startTurn(threadId, "Do not use tools. Dogfood Codex app-server compaction turn 1. Remember marker CODEX-DOGFOOD-ALPHA. Reply exactly: codex-dogfood-turn-1-ok");
+    await startTurn(threadId, "Do not use tools. Dogfood Codex app-server compaction turn 2. Remember marker CODEX-DOGFOOD-BRAVO and that compactor exposes progressive disclosure refs. Reply exactly: codex-dogfood-turn-2-ok");
+    await startTurn(threadId, "Do not use tools. Dogfood Codex app-server compaction turn 3. Remember marker CODEX-DOGFOOD-CHARLIE and that this is native app-server compact testing. Reply exactly: codex-dogfood-turn-3-ok");
+
+    compactStarted = true;
+    await send("thread/compact/start", { threadId });
+    await waitFor(
+      "compact turn completion",
+      (message) =>
+        message.method === "turn/completed" &&
+        compactTurnId !== null &&
+        message.params.threadId === threadId &&
+        message.params.turn.id === compactTurnId,
+      240000,
+    );
+
+    if (!hookCompleted("preCompact") || !hookCompleted("postCompact")) {
+      throw new Error("compact hooks did not complete");
+    }
+    if (!itemCompleted(compactTurnId, "contextCompaction")) {
+      throw new Error("Codex compact turn did not complete a contextCompaction item");
+    }
+
+    const sessionDir = `${cwd}/.compactor/sessions/codex/${threadId}`;
+    await new Promise((resolve, reject) => {
+      const validate = spawn(compactor, ["validate", sessionDir], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      validate.stderr.on("data", (chunk) => (stderr += chunk.toString("utf8")));
+      validate.on("exit", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`compactor validate failed: ${stderr}`));
+        }
+      });
+    });
+
+    const followup = await send("turn/start", {
+      threadId,
+      input: input("No tools. What is the first compactor:// ref currently visible in your prompt/context? Reply with only that ref, or NONE if no compactor ref is visible."),
+      cwd,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" },
+      effort: "low",
+      summary: "none",
+    });
+    followupTurnId = followup.turn.id;
+    await waitFor(
+      `follow-up turn ${followupTurnId}`,
+      (message) =>
+        message.method === "turn/completed" &&
+        message.params.threadId === threadId &&
+        message.params.turn.id === followupTurnId,
+    );
+
+    if (!followupText.trim().startsWith(`compactor://session/codex/${threadId}/`)) {
+      throw new Error(`follow-up did not see injected compactor ref: ${followupText.trim() || "<empty>"}`);
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          threadId,
+          compactTurnId,
+          followupTurnId,
+          firstRef: followupText.trim(),
+          sessionDir,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    child.kill("SIGTERM");
+  }
+})().catch((error) => {
+  child.kill("SIGTERM");
+  console.error(error.stack || String(error));
+  process.exit(1);
+});
+NODE

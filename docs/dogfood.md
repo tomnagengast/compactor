@@ -55,12 +55,25 @@ After reviewing project `.claude/settings.json`, trigger `/compact` in a sacrifi
 
 ## Real Codex run
 
-After reviewing project `.codex/hooks.json`, trigger `/compact` in a sacrificial Codex session and submit one follow-up prompt. Watch whether Codex payloads include:
+The most reliable Codex dogfood path is the native app-server protocol, not TUI key driving. The repo includes a wrapper that builds the current checkout, temporarily installs project Codex hooks pointing at that build, starts `codex app-server --listen stdio://`, sends three turns, calls `thread/compact/start`, validates generated docs, submits one follow-up prompt, and restores the prior `.codex/hooks.json` on exit:
 
-- `transcript_path`
-- `turn_id`
-- compact summary data
-- `SessionStart` or `UserPromptSubmit` injection opportunities
+```sh
+dev/agent/dogfood-codex-appserver
+```
+
+This is a real Codex/model run. It writes ignored local artifacts under `.codex/`, `.compactor/`, and `$CODEX_HOME/sessions/`, and it can consume model quota.
+
+The verified Codex event shape is:
+
+- `PreCompact` hook starts and completes for the compact turn.
+- Codex emits an `item/completed` notification whose item type is `contextCompaction`.
+- `PostCompact` hook starts and completes for the same compact turn.
+- The compact turn completes.
+- A later `UserPromptSubmit` hook can inject the `pending-context.md` capsule; a no-tools follow-up prompt should see a `compactor://session/codex/...` ref in context.
+
+In the verified app-server path, Codex did not emit `thread/compacted`. Dogfood automation should wait for the compact turn completion plus the `contextCompaction` item and `PostCompact`, not only for `thread/compacted`.
+
+The Codex hook payload has been observed to provide the session/thread id, cwd, transcript path, trigger, and turn id. Codex has not been observed to provide native compact summary text, so Codex uses precompact transcript-derived artifacts plus the postcompact event metadata.
 
 ## Validation checklist
 
@@ -90,5 +103,6 @@ Record these in a follow-up issue, PR note, or sanitized fixture plan:
 - whether `transcript_path` is consistently present
 - whether Codex ever provides compact summary data
 - whether `UserPromptSubmit` injection is too noisy
+- whether future Codex versions emit `thread/compacted` in addition to `contextCompaction`
 - prompt-cache churn, startup warnings, or hook config incompatibilities
 - whether bounded extraction is sufficient to recover prior task context
